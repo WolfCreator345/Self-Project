@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{ topic }} — {{ platform|title }} Carousel</title>
+<style>
+  :root {
+    --primary: {{ theme_color }};
+    --font: {{ theme["font_family"] }};
+    --slide-w: {% if is_instagram %}480px{% else %}400px{% endif %};
+    --slide-h: {% if is_instagram %}480px{% else %}500px{% endif %};
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: var(--font);
+    background: #0d0d0d;
+    color: #fff;
+    padding: 20px;
+  }
+  .carousel-wrapper {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 16px;
+  }
+  .carousel-meta {
+    text-align: center;
+    margin-bottom: 8px;
+  }
+  .carousel-meta h2 {
+    font-size: 1.1rem;
+    color: #ccc;
+    font-weight: 500;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+  }
+  .carousel-meta .platform-badge {
+    display: inline-block;
+    background: var(--primary);
+    color: #fff;
+    padding: 3px 12px;
+    border-radius: 20px;
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    margin-top: 6px;
+  }
+  .slides-track {
+    display: flex;
+    gap: 16px;
+    overflow-x: auto;
+    padding: 12px 0 20px 0;
+    scroll-snap-type: x mandatory;
+    width: 100%;
+    max-width: 1200px;
+  }
+  .slides-track::-webkit-scrollbar { height: 4px; }
+  .slides-track::-webkit-scrollbar-track { background: #222; border-radius: 2px; }
+  .slides-track::-webkit-scrollbar-thumb { background: var(--primary); border-radius: 2px; }
+
+  .slide {
+    flex: 0 0 var(--slide-w);
+    height: var(--slide-h);
+    border-radius: 16px;
+    padding: 28px 24px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    position: relative;
+    overflow: hidden;
+    scroll-snap-align: start;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+    transition: transform 0.2s ease;
+  }
+  .slide:hover { transform: translateY(-4px); }
+
+  /* Decorative elements */
+  .slide::before {
+    content: '';
+    position: absolute;
+    top: -30px; right: -30px;
+    width: 100px; height: 100px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.06);
+  }
+  .slide::after {
+    content: '';
+    position: absolute;
+    bottom: -20px; left: -20px;
+    width: 80px; height: 80px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.04);
+  }
+
+  .slide-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .slide-number {
+    font-size: 0.7rem;
+    font-weight: 700;
+    color: rgba(255,255,255,0.5);
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+  }
+  .slide-type-icon {
+    font-size: 1.5rem;
+    line-height: 1;
+  }
+  .brand {
+    font-size: 0.65rem;
+    color: rgba(255,255,255,0.4);
+    font-weight: 600;
+    letter-spacing: 0.08em;
+  }
+
+  .slide-body {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 10px;
+    padding: 12px 0;
+  }
+
+  .slide-emoji {
+    font-size: 2rem;
+    line-height: 1;
+    margin-bottom: 2px;
+  }
+
+  .slide-headline {
+    font-size: 1.15rem;
+    font-weight: 800;
+    color: #fff;
+    line-height: 1.3;
+    letter-spacing: -0.01em;
+  }
+  .slide-headline.large {
+    font-size: 1.35rem;
+  }
+
+  .slide-subtext {
+    font-size: 0.82rem;
+    color: rgba(255,255,255,0.82);
+    line-height: 1.55;
+    font-weight: 400;
+  }
+
+  .slide-points {
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+    margin-top: 4px;
+  }
+  .point-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    font-size: 0.78rem;
+    color: rgba(255,255,255,0.88);
+    line-height: 1.45;
+  }
+  .point-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.7);
+    flex-shrink: 0;
+    margin-top: 5px;
+  }
+
+  .key-takeaway {
+    background: rgba(255,255,255,0.12);
+    border-left: 3px solid rgba(255,255,255,0.6);
+    border-radius: 6px;
+    padding: 8px 12px;
+    font-size: 0.78rem;
+    color: rgba(255,255,255,0.9);
+    font-style: italic;
+    margin-top: 4px;
+  }
+  .key-takeaway strong {
+    color: #fff;
+    font-style: normal;
+    display: block;
+    font-size: 0.68rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 3px;
+    opacity: 0.6;
+  }
+
+  .visual-hint {
+    font-size: 0.62rem;
+    color: rgba(255,255,255,0.3);
+    font-style: italic;
+    border-top: 1px solid rgba(255,255,255,0.1);
+    padding-top: 8px;
+    margin-top: auto;
+  }
+
+  .cta-points {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .cta-item {
+    background: rgba(255,255,255,0.15);
+    border-radius: 8px;
+    padding: 8px 12px;
+    font-size: 0.78rem;
+    color: #fff;
+    font-weight: 500;
+    text-align: center;
+  }
+
+  .swipe-hint {
+    text-align: center;
+    font-size: 0.7rem;
+    color: #555;
+    margin-top: 4px;
+    letter-spacing: 0.05em;
+  }
+</style>
+</head>
+<body>
+<div class="carousel-wrapper">
+  <div class="carousel-meta">
+    <h2>{{ topic }}</h2>
+    <span class="platform-badge">{{ platform }}</span>
+  </div>
+
+  <div class="slides-track">
+    {% for slide in slides %}
+    <div class="slide" style="background: {{ slide.gradient }};">
+      <div class="slide-header">
+        <span class="slide-number">{{ slide.slide_number }} / {{ slide_count }}</span>
+        <span class="brand">⚖️ LexEdu</span>
+        <span class="slide-type-icon">{{ slide.type_icon }}</span>
+      </div>
+
+      <div class="slide-body">
+        {% if slide.emoji %}
+        <div class="slide-emoji">{{ slide.emoji }}</div>
+        {% endif %}
+
+        <div class="slide-headline {% if slide.type == 'hook' %}large{% endif %}">
+          {{ slide.headline }}
+        </div>
+
+        {% if slide.subtext %}
+        <div class="slide-subtext">{{ slide.subtext }}</div>
+        {% endif %}
+
+        {% if slide.points %}
+        <div class="{% if slide.type == 'cta' %}cta-points{% else %}slide-points{% endif %}">
+          {% for point in slide.points %}
+          {% if slide.type == 'cta' %}
+          <div class="cta-item">{{ point }}</div>
+          {% else %}
+          <div class="point-item">
+            <span class="point-dot"></span>
+            <span>{{ point }}</span>
+          </div>
+          {% endif %}
+          {% endfor %}
+        </div>
+        {% endif %}
+
+        {% if slide.key_takeaway %}
+        <div class="key-takeaway">
+          <strong>Key Takeaway</strong>
+          {{ slide.key_takeaway }}
+        </div>
+        {% endif %}
+      </div>
+
+      <div class="visual-hint">Visual: {{ slide.visual_suggestion }}</div>
+    </div>
+    {% endfor %}
+  </div>
+
+  <p class="swipe-hint">← Scroll to see all {{ slide_count }} slides →</p>
+</div>
+</body>
+</html>

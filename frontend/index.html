@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LexEdu — AI Legal Education Bot</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+
+<!-- ── Header ─────────────────────────────────────────────────────────── -->
+<header class="app-header">
+  <div class="logo">
+    <div class="logo-icon">⚖️</div>
+    <div>
+      LexEdu
+      <span class="logo-sub">AI Legal Educator</span>
+    </div>
+  </div>
+  <span class="header-badge">Educational Use Only</span>
+</header>
+
+<!-- ── Hero ───────────────────────────────────────────────────────────── -->
+<section class="hero">
+  <div class="hero-tag">
+    <span>⚖️</span> Jurisprudence · Case Analysis · Carousel Design
+  </div>
+  <h1>
+    Law, Explained<br>
+    <span>Like Never Before</span>
+  </h1>
+  <p>
+    Feed LexEdu a legal topic, case, article, or judgment — get a deep
+    jurisprudential analysis plus ready-to-post LinkedIn &amp; Instagram carousels,
+    crafted for students, scholars, and the general public.
+  </p>
+</section>
+
+<!-- ── Main ───────────────────────────────────────────────────────────── -->
+<div class="main-container">
+
+  <!-- ── LEFT: Input Panel ─────────────────────────────────────────── -->
+  <aside class="input-panel">
+    <div class="panel-header">
+      <h3>Input &amp; Settings</h3>
+    </div>
+    <div class="panel-body">
+
+      <!-- Topic -->
+      <div class="form-group">
+        <label class="form-label" for="topic-input">Legal Topic / Case</label>
+        <input
+          id="topic-input"
+          class="form-input"
+          type="text"
+          placeholder="e.g. Article 21 — Right to Life, Roe v Wade, GDPR, Habeas Corpus"
+          autocomplete="off"
+        />
+      </div>
+
+      <!-- Audience -->
+      <div class="form-group">
+        <label class="form-label">Target Audience</label>
+        <div class="audience-selector">
+          <button class="audience-btn" data-audience="student" onclick="selectAudience('student')">
+            <span class="icon">🎓</span>Student
+          </button>
+          <button class="audience-btn" data-audience="scholar" onclick="selectAudience('scholar')">
+            <span class="icon">📚</span>Scholar
+          </button>
+          <button class="audience-btn" data-audience="public" onclick="selectAudience('public')">
+            <span class="icon">🌍</span>Public
+          </button>
+        </div>
+      </div>
+
+      <div class="divider">Source Content</div>
+
+      <!-- URL Input -->
+      <div class="form-group">
+        <label class="form-label" for="url-input">Article / Case URL (optional)</label>
+        <input
+          id="url-input"
+          class="form-input"
+          type="url"
+          placeholder="https://example.com/legal-article"
+        />
+      </div>
+
+      <!-- Raw Text -->
+      <div class="form-group">
+        <label class="form-label" for="raw-text">Paste Text / Case Excerpt</label>
+        <textarea
+          id="raw-text"
+          class="form-textarea"
+          placeholder="Paste a legal case excerpt, article, judgment, or any text you want analyzed..."
+          rows="5"
+        ></textarea>
+      </div>
+
+      <!-- Analyze Button -->
+      <button id="analyze-btn" class="btn btn-primary" onclick="runAnalysis()">
+        ⚖️ &nbsp;Analyze Legally
+      </button>
+
+      <!-- Generate Carousel Button -->
+      <button id="carousel-btn" class="btn btn-secondary" onclick="generateCarousels()">
+        🎨 &nbsp;Generate Carousels
+      </button>
+
+      <!-- Status -->
+      <div class="status-bar" id="status-bar">
+        <div class="status-dot" id="status-dot"></div>
+        <span id="status-text">Ready — enter a topic to begin</span>
+      </div>
+
+      <!-- Disclaimer -->
+      <div style="font-size:0.68rem;color:#555566;line-height:1.5;border-top:1px solid var(--border);padding-top:14px;">
+        ⚠️ LexEdu is for <strong style="color:#8888aa;">educational purposes only</strong>.
+        Nothing here constitutes legal advice. Consult a qualified lawyer for personal matters.
+      </div>
+    </div>
+  </aside>
+
+  <!-- ── RIGHT: Output Panel ───────────────────────────────────────── -->
+  <main class="output-panel">
+
+    <!-- Tab Bar -->
+    <div class="output-tabs">
+      <button class="tab-btn active" data-tab="analysis" onclick="switchTab('analysis')">
+        📝 Analysis
+      </button>
+      <button class="tab-btn" data-tab="carousel" onclick="switchTab('carousel')">
+        🎨 Carousels
+      </button>
+    </div>
+
+    <!-- ── Analysis Tab ────────────────────────────────────────────── -->
+    <div id="tab-analysis" class="tab-content active">
+      <div class="analysis-box">
+        <div class="panel-header">
+          <h3>Jurisprudential Analysis</h3>
+          <button class="btn btn-secondary btn-sm" onclick="copyAnalysis()" title="Copy analysis">
+            📋 Copy
+          </button>
+        </div>
+        <div id="analysis-content" class="analysis-content">
+          <div class="empty-state">
+            <span class="icon">⚖️</span>
+            <h3>Ready to Analyze</h3>
+            <p>Enter a legal topic and a URL or paste text on the left,<br>then click <strong>Analyze Legally</strong>.</p>
+            <br>
+            <p style="font-size:0.78rem;opacity:0.7;">
+              LexEdu will examine the content through the lens of<br>
+              Natural Law · Legal Positivism · Legal Realism · Critical Legal Studies
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Carousel Tab ───────────────────────────────────────────── -->
+    <div id="tab-carousel" class="tab-content">
+
+      <!-- Summary badge -->
+      <div id="summary-badge" style="display:none;gap:10px;align-items:center;flex-wrap:wrap;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px 16px;"></div>
+
+      <!-- Carousel section -->
+      <div class="carousel-section">
+        <!-- Platform selector -->
+        <div class="platform-tabs">
+          <button class="platform-tab active linkedin" data-platform="linkedin" onclick="switchPlatform('linkedin')">
+            💼 LinkedIn (1080×1350)
+          </button>
+          <button class="platform-tab instagram" data-platform="instagram" onclick="switchPlatform('instagram')">
+            📸 Instagram (1080×1080)
+          </button>
+        </div>
+
+        <!-- Slides display -->
+        <div class="carousel-display">
+          <div id="carousel-placeholder" class="carousel-placeholder">
+            <span class="icon">🎨</span>
+            Click <strong>Generate Carousels</strong> to create<br>
+            LinkedIn &amp; Instagram slide posts for this legal topic.
+          </div>
+          <div id="carousel-slides" class="slides-container"></div>
+        </div>
+      </div>
+
+      <!-- Export actions -->
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+        <button id="export-btn" class="btn btn-secondary btn-sm" onclick="exportText()" disabled>
+          📄 Export as Text
+        </button>
+        <span style="font-size:0.72rem;color:var(--text-muted);">
+          Copy slide content directly into Canva, Adobe Express, or your design tool.
+        </span>
+      </div>
+
+      <!-- Text export output -->
+      <pre id="export-text-box" class="export-box" style="display:none;"></pre>
+
+      <!-- Design Tips -->
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px;">
+        <h4 style="font-size:0.78rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:12px;">
+          Design Tips for Carousel Posts
+        </h4>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+          <div style="background:var(--surface2);border-radius:8px;padding:14px;">
+            <div style="font-size:0.9rem;font-weight:700;color:#0A66C2;margin-bottom:6px;">💼 LinkedIn</div>
+            <ul style="font-size:0.75rem;color:var(--text-muted);line-height:1.7;padding-left:14px;">
+              <li>Aspect ratio: 4:5 (1080×1350px)</li>
+              <li>Max slides: 10 (carousel PDFs)</li>
+              <li>Tone: professional, cite sources</li>
+              <li>End with a thought-provoking question</li>
+              <li>Use legal jargon with explanations</li>
+            </ul>
+          </div>
+          <div style="background:var(--surface2);border-radius:8px;padding:14px;">
+            <div style="font-size:0.9rem;font-weight:700;color:#E1306C;margin-bottom:6px;">📸 Instagram</div>
+            <ul style="font-size:0.75rem;color:var(--text-muted);line-height:1.7;padding-left:14px;">
+              <li>Aspect ratio: 1:1 (1080×1080px)</li>
+              <li>Max slides: 10 per carousel</li>
+              <li>Tone: conversational, emoji-rich</li>
+              <li>Save-worthy summary on last slide</li>
+              <li>Use stories + reels to amplify</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+    </div>
+    <!-- end carousel tab -->
+
+  </main>
+</div>
+
+<!-- ── Toast container ─────────────────────────────────────────────────── -->
+<div id="toast-container" class="toast-container"></div>
+
+<script src="/static/js/app.js"></script>
+</body>
+</html>

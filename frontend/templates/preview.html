@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>LexEdu — {{ topic }} Preview</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', sans-serif; background: #0a0a0a; color: #eee; }
+  .preview-tabs { display: flex; gap: 0; border-bottom: 1px solid #222; background: #111; }
+  .tab-btn {
+    padding: 14px 28px; cursor: pointer; border: none; background: transparent;
+    color: #888; font-size: 0.9rem; font-weight: 600; letter-spacing: 0.05em;
+    text-transform: uppercase; transition: all 0.2s;
+  }
+  .tab-btn.active { color: #fff; border-bottom: 2px solid #7B2FBE; }
+  .tab-panel { display: none; padding: 20px; }
+  .tab-panel.active { display: block; }
+  .analysis-panel { max-width: 860px; margin: 0 auto; }
+  .analysis-panel h1,h2,h3,h4 { margin: 1.2em 0 0.5em; color: #e0e0e0; }
+  .analysis-panel p { line-height: 1.7; color: #bbb; margin: 0.6em 0; }
+  .analysis-panel ul,ol { padding-left: 1.5em; color: #bbb; }
+  .analysis-panel li { margin: 0.4em 0; line-height: 1.6; }
+  .analysis-panel strong { color: #e0e0e0; }
+  .analysis-panel em { color: #9b87f5; }
+  .analysis-panel blockquote {
+    border-left: 3px solid #7B2FBE; padding: 8px 16px;
+    margin: 12px 0; color: #aaa; font-style: italic; background: #1a1a1a;
+  }
+</style>
+</head>
+<body>
+<div class="preview-tabs">
+  <button class="tab-btn active" onclick="showTab('linkedin')">LinkedIn Carousel</button>
+  <button class="tab-btn" onclick="showTab('instagram')">Instagram Carousel</button>
+  {% if analysis_html %}
+  <button class="tab-btn" onclick="showTab('analysis')">Full Analysis</button>
+  {% endif %}
+</div>
+
+<div id="tab-linkedin" class="tab-panel active">
+  {{ linkedin_carousel | safe }}
+</div>
+<div id="tab-instagram" class="tab-panel">
+  {{ instagram_carousel | safe }}
+</div>
+{% if analysis_html %}
+<div id="tab-analysis" class="tab-panel">
+  <div class="analysis-panel">{{ analysis_html | safe }}</div>
+</div>
+{% endif %}
+
+<script>
+function showTab(name) {
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('tab-' + name).classList.add('active');
+  event.target.classList.add('active');
+}
+</script>
+</body>
+</html>
