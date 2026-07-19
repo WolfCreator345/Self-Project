@@ -40,6 +40,27 @@ describe("seed data", () => {
 });
 
 describe("ConsentRepository", () => {
+  it("creates a new principal and a new purpose", async () => {
+    const store = createSeededStore();
+
+    const principal = await store.createPrincipal({
+      name: "Neha Kapoor",
+      email: "neha.kapoor@example.com",
+      isMinor: false,
+    });
+    assert.ok(principal.id);
+    assert.equal(await store.findPrincipalById(principal.id).then((p) => p?.email), "neha.kapoor@example.com");
+    assert.equal((await store.listPrincipals()).length, 9);
+
+    const purpose = await store.createPurpose({
+      description: "Newsletter subscription",
+      lawfulBasis: "consent",
+      retentionPeriodDays: 400,
+    });
+    assert.ok(purpose.id);
+    assert.equal((await store.listPurposes()).length, 5);
+  });
+
   it("check_consent_status returns the artifact for a known principal/purpose pair", async () => {
     const store = createSeededStore();
     const found = await store.findConsentArtifact("principal-1", "purpose-2");

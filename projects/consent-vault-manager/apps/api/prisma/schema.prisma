@@ -1,0 +1,189 @@
+// Consent Vault Manager — Phase 4 Prisma schema.
+// Mirrors mock-store/types.ts field-for-field so PrismaConsentRepository /
+// PrismaDSRRepository / PrismaLedgerRepository can map 1:1 onto the same
+// ConsentRepository / DSRRepository / LedgerRepository interfaces Phase 0
+// defined. No hash-chain fields on ConsentLedgerEntry yet — that's Phase 5.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum LawfulBasis {
+  consent
+  legitimate_use
+}
+
+enum ConsentStatus {
+  granted
+  withdrawn
+  expired
+}
+
+enum LedgerEntryType {
+  consent_granted
+  consent_withdrawn
+  consent_expired
+  dsr_created
+  dsr_resolved
+  breach_logged
+  processor_purge_flagged
+  renewal_email_drafted
+  purge_notice_email_drafted
+  purge_followup_event_scheduled
+}
+
+enum DSRType {
+  access
+  correction
+  erasure
+  nomination
+}
+
+enum DSRStatus {
+  open
+  in_progress
+  resolved
+  overdue
+}
+
+enum BreachSeverity {
+  low
+  medium
+  high
+  critical
+}
+
+enum ProcessorStatus {
+  active
+  purge_pending
+  purged
+}
+
+model DataFiduciary {
+  id        String   @id @default(uuid())
+  name      String
+  dpoName   String
+  dpoEmail  String
+  createdAt DateTime @default(now())
+
+  @@map("data_fiduciaries")
+}
+
+model DataPrincipal {
+  id            String   @id @default(uuid())
+  name          String
+  email         String
+  phone         String?
+  isMinor       Boolean  @default(false)
+  guardianName  String?
+  guardianEmail String?
+  createdAt     DateTime @default(now())
+
+  consentArtifacts ConsentArtifact[]
+  dsrRequests      DSRRequest[]
+
+  @@map("data_principals")
+}
+
+model Purpose {
+  id                  String   @id @default(uuid())
+  description         String
+  lawfulBasis         LawfulBasis
+  retentionPeriodDays Int
+  createdAt           DateTime @default(now())
+
+  consentArtifacts ConsentArtifact[]
+  processors       Processor[]
+
+  @@map("purposes")
+}
+
+model ConsentArtifact {
+  id            String        @id @default(uuid())
+  principalId   String
+  purposeId     String
+  status        ConsentStatus
+  grantedAt     DateTime
+  withdrawnAt   DateTime?
+  expiresAt     DateTime
+  noticeVersion String
+  language      String
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  principal DataPrincipal @relation(fields: [principalId], references: [id])
+  purpose   Purpose       @relation(fields: [purposeId], references: [id])
+
+  @@index([principalId, purposeId])
+  @@index([status])
+  @@map("consent_artifacts")
+}
+
+// Append-only: no update/delete path is exposed through PrismaLedgerRepository.
+// `sequence` gives the same monotonically increasing append order the mock
+// store's in-memory array index gave.
+model ConsentLedgerEntry {
+  id          String          @id @default(uuid())
+  sequence    Int             @default(autoincrement())
+  entryType   LedgerEntryType
+  refId       String
+  principalId String?
+  detail      Json
+  recordedAt  DateTime        @default(now())
+
+  @@index([refId])
+  @@index([principalId])
+  @@index([entryType])
+  @@map("consent_ledger_entries")
+}
+
+model DSRRequest {
+  id          String     @id @default(uuid())
+  principalId String
+  type        DSRType
+  submittedAt DateTime
+  dueAt       DateTime
+  status      DSRStatus
+  resolvedAt  DateTime?
+  createdAt   DateTime   @default(now())
+
+  principal DataPrincipal @relation(fields: [principalId], references: [id])
+
+  @@index([principalId])
+  @@index([status])
+  @@map("dsr_requests")
+}
+
+model BreachEvent {
+  id             String         @id @default(uuid())
+  description    String
+  detectedAt     DateTime
+  dpbNotifyDueAt DateTime
+  severity       BreachSeverity
+  createdAt      DateTime       @default(now())
+
+  @@map("breach_events")
+}
+
+// Not in the spec's section 2 table — added in Phase 2 (mock-store) because
+// the withdrawal cascade automation needs "downstream processor records
+// tied to that purpose" to walk and flag. Mirrored here for interface parity.
+model Processor {
+  id           String          @id @default(uuid())
+  name         String
+  purposeId    String
+  status       ProcessorStatus
+  contactEmail String
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+
+  purpose Purpose @relation(fields: [purposeId], references: [id])
+
+  @@index([purposeId])
+  @@map("processors")
+}

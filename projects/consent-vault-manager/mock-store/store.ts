@@ -7,6 +7,8 @@ import type {
   CreateBreachEventInput,
   CreateConsentArtifactInput,
   CreateDSRRequestInput,
+  CreatePrincipalInput,
+  CreatePurposeInput,
   DateRange,
   DSRRepository,
   LedgerRepository,
@@ -78,12 +80,24 @@ export class InMemoryConsentVaultStore implements ConsentRepository, DSRReposito
     return this.principals.get(id) ?? null;
   }
 
+  async createPrincipal(input: CreatePrincipalInput): Promise<DataPrincipal> {
+    const principal: DataPrincipal = { id: randomUUID(), createdAt: new Date(), ...input };
+    this.principals.set(principal.id, principal);
+    return principal;
+  }
+
   async listPurposes(params?: PageParams): Promise<Purpose[]> {
     return paginate([...this.purposes.values()], params);
   }
 
   async findPurposeById(id: string): Promise<Purpose | null> {
     return this.purposes.get(id) ?? null;
+  }
+
+  async createPurpose(input: CreatePurposeInput): Promise<Purpose> {
+    const purpose: Purpose = { id: randomUUID(), createdAt: new Date(), ...input };
+    this.purposes.set(purpose.id, purpose);
+    return purpose;
   }
 
   async createConsentArtifact(input: CreateConsentArtifactInput): Promise<ConsentArtifact> {

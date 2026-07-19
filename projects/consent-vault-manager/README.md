@@ -9,7 +9,7 @@ This project lives at `projects/consent-vault-manager/` in this repo,
 alongside the unrelated LexEdu app (`backend/`, `frontend/`) — the two are
 independent projects sharing a repo, not a monorepo (yet).
 
-## Status: Phase 3 — real Gmail/Calendar notifications, human-confirmed
+## Status: Phase 4 — real NestJS + Postgres backend (not wired in yet)
 
 Done — Phase 0 (mock data layer):
 - `mock-store/types.ts` — domain model (`DataPrincipal`, `DataFiduciary`,
@@ -119,9 +119,69 @@ Done — Phase 3 (real Gmail/Calendar notifications, human-confirmed):
   their real ids — was also verified by hand against the account this
   session is running as.
 
-Not built yet (later phases per the spec): NestJS + Postgres backend
-(Phase 4), ledger hash-chaining (Phase 5), React dashboard (Phase 6), breach
-notice drafting (Phase 7).
+Done — Phase 4 (NestJS + Postgres backend, satisfying the same interfaces):
+- `apps/api/` — its own npm package, own `node_modules`. `docker-compose.yml`
+  at the **repo root** spins up local Postgres 16 (`consent_vault` user/db,
+  port 5432); `apps/api/.env.example` has the matching `DATABASE_URL`.
+- `apps/api/prisma/schema.prisma` — the full domain model from section 2
+  (`DataFiduciary`, `DataPrincipal`, `Purpose`, `ConsentArtifact`,
+  `ConsentLedgerEntry`, `DSRRequest`, `BreachEvent`) plus `Processor` (the
+  Phase 2 addition, mirrored here for interface parity), migrated via
+  `prisma migrate dev`. `ConsentLedgerEntry.sequence` is a real Postgres
+  `SERIAL` — same append-order guarantee the mock's array index gave, still
+  no `hash`/`prevHash` (Phase 5, per the spec).
+- `apps/api/src/consent-vault/prisma-consent.repository.ts`,
+  `prisma-dsr.repository.ts`, `prisma-ledger.repository.ts` — three
+  `@Injectable()` NestJS providers, one per mock-store interface, each
+  implementing `ConsentRepository` / `DSRRepository` / `LedgerRepository`
+  **exactly as imported from `mock-store/repositories.ts`** — same method
+  signatures, same async contracts, same pagination shape, same thrown-error
+  messages (e.g. `Cannot revoke consent artifact "..." from status "..."`),
+  same non-obvious behavior quirks (`getComplianceSnapshot`'s `dsrOpen` /
+  `dsrOverdue` intentionally ignore the date range, exactly like the mock).
+  `PrismaConsentRepository`/`PrismaDSRRepository` take `PrismaLedgerRepository`
+  as a constructor-injected dependency for their self-logging calls, mirroring
+  how the mock's single class self-logged via its own `appendEntry`.
+- These imports are **type-only** (`import type { ... } from
+  "../../../../mock-store/repositories"`) — apps/api never depends on
+  mock-store's runtime (no `InMemoryConsentVaultStore`, no
+  `createSeededStore`), only its type contracts, so the CJS-compiled Nest
+  app and the ESM-authored mock-store package never collide at runtime.
+  `apps/api/src/consent-vault/mappers.ts` converts Prisma's generated row
+  types to the mock-store domain types (mostly pass-through; `null` →
+  `undefined` for optional fields, and casting the untyped `Json` `detail`
+  column to `Record<string, unknown>`).
+- Not wrapped in `$transaction`: each mutation does its read/write against
+  Postgres and then calls `PrismaLedgerRepository.appendEntry` as a second,
+  separate statement — same sequencing the mock does, just without the
+  implicit atomicity JS's single-threadedness gave it there. Fine for this
+  phase's demo/test scope; production hardening would wrap each in
+  `prisma.$transaction`.
+- Basic CRUD endpoints for principals, purposes, and consent artifacts
+  (`PrincipalsController`, `PurposesController`, `ConsentArtifactsController`)
+  — `GET`/`GET :id`/`POST` for all three, plus `POST
+  /consent-artifacts/:id/revoke` as a domain action (mirroring the
+  `revoke_consent` MCP tool's shape) rather than a generic `PATCH`. No DSR/
+  Ledger/Breach/Processor endpoints yet — out of this phase's explicit scope.
+- `apps/api/prisma/seed-database.ts` calls mock-store's own
+  `createSeedData()` directly and inserts it via Prisma — the Postgres
+  seed reuses the exact same deterministic fixtures as the mock (single
+  source of truth), rather than a second hand-authored copy that could
+  drift. `npm run prisma:seed` (CLI) and the Jest test suite's
+  `resetDatabase()` (truncate + reseed before each test) both call it.
+- `apps/api/test/*.spec.ts` — 13 Jest tests mirroring mock-store's own test
+  coverage (seed counts, `check_consent_status` lookup, create+revoke round
+  trip with ledger entries, double-revoke rejection, 30-day DSR SLA,
+  processor purge, compliance snapshot), run with `--runInBand` since all
+  three spec files truncate/reseed the **same** real local Postgres
+  database and would race each other in parallel workers.
+
+Not wired in yet: `mcp-server/` and `jobs/` still run entirely against
+`mock-store/`, per the spec — this phase only had to prove the real backend
+works against its own test suite. Wiring is Phase 5.
+
+Not built yet (later phases per the spec): ledger hash-chaining (Phase 5),
+React dashboard (Phase 6), breach notice drafting (Phase 7).
 
 ### Design decisions made without a spec answer
 
@@ -148,6 +208,32 @@ and 6 seeded processors across the 4 purposes. If you had a different shape
 in mind (e.g. a separate `ProcessorRepository`, or fields like a processor's
 own DPO contact), it's additive to change — nothing else depends on the
 current shape beyond `jobs/src/withdrawalCascade.ts`.
+
+**`createPrincipal`/`createPurpose` (Phase 4 addition).** "Basic CRUD
+endpoints for principals, purposes, and consent artifacts" implies a create
+path for all three, but `ConsentRepository` only ever had reads
+(`listPrincipals`/`findPrincipalById`, `listPurposes`/`findPurposeById`) —
+Phase 0 treated principals/purposes as reference data, never
+API-created. Added both methods to the interface *and* implemented them in
+`InMemoryConsentVaultStore` (Phase 0) in the same commit, so the mock stays
+in sync rather than silently falling out of parity with what Phase 4 needs.
+
+**Three separate repository classes, not one combined class.** The mock's
+single `InMemoryConsentVaultStore` implements all three interfaces at once
+(simple since it's all in-memory Maps in one object). The Prisma-backed
+version instead has three separate `@Injectable()` providers — more
+idiomatic NestJS DI, and matches "Implement ConsentRepository, DSRRepository,
+and LedgerRepository" reading as three distinct things. `getComplianceSnapshot`
+(on `LedgerRepository`) needs consent/DSR data, but rather than depending on
+the other two repositories (risking a circular dependency back from
+`PrismaConsentRepository`/`PrismaDSRRepository`, which depend on
+`PrismaLedgerRepository` for self-logging), it just queries those Prisma
+tables directly — all three are facades over the same Postgres connection
+via `PrismaService`, so this isn't a real encapsulation break. One
+consequence for Phase 5: MCP-server/jobs will hold three separate service
+references instead of mock-store's one combined store object — same method
+calls, different container shape. Flagging it now since Phase 4 was
+explicitly scoped to not wire that up yet.
 
 ### Hash-chaining is deliberately absent
 
@@ -230,9 +316,54 @@ picks up automatically for anyone working in this repo (after they've run
 are overdue" or "check consent status for principal-1 on purpose-2" once
 it's connected.
 
+### apps/api — NestJS + Postgres
+
+```bash
+# from the repo root
+docker compose up -d          # local Postgres 16 on :5432
+# (this sandbox's Docker daemon couldn't start, so Phase 4 was verified
+# against a natively-installed Postgres 16 with matching credentials
+# instead — docker-compose.yml is what you'll actually use)
+
+cd projects/consent-vault-manager/apps/api
+npm install
+cp .env.example .env          # adjust if you changed the compose credentials
+npx prisma migrate dev        # applies prisma/migrations/, generates the client
+npm run prisma:seed           # loads mock-store's exact seed data via Prisma
+npm test                      # 13 Jest tests against the real database (--runInBand)
+npm run typecheck
+
+npm start                     # nest build && node dist/apps/api/src/main.js
+```
+
+Try it:
+
+```bash
+curl http://localhost:3000/principals/principal-1
+curl "http://localhost:3000/consent-artifacts?principalId=principal-1&purposeId=purpose-2"
+curl -X POST http://localhost:3000/consent-artifacts \
+  -H "Content-Type: application/json" \
+  -d '{"principalId":"principal-1","purposeId":"purpose-1","noticeVersion":"v2.0","language":"en"}'
+```
+
+**Why `npm start` is `nest build && node dist/apps/api/src/main.js`, not
+`nest start`.** `apps/api/src/**/*.ts` type-only-imports from
+`../../mock-store` (outside apps/api's own directory), and TypeScript
+computes its output directory structure from the common root of every file
+it compiles — since `apps/api/tsconfig.json` doesn't pin `rootDir`, pulling
+in `../../mock-store` pushes that common root up, so `nest build` emits
+`dist/apps/api/src/main.js` (mirroring the wider tree) rather than
+`dist/main.js`. Nest CLI's own `start`/`start:dev` runners hardcode the
+latter path and fail; `npm start` here just points at where the file
+actually lands. (Enabling Nest's webpack bundling mode would sidestep this
+by bundling everything into one `dist/main.js` regardless of source
+location, but Prisma's native query-engine binary and webpack bundling are
+a known friction point, so build+run was the safer choice for this phase.)
+
 ## Next step
 
-Phase 4: build the real NestJS + Postgres backend, implementing the exact
-same `ConsentRepository` / `DSRRepository` / `LedgerRepository` interfaces
-from Phase 0 — nothing in `mcp-server/` or `jobs/` should need to change,
-only the implementation swapped in for `createSeededStore()`.
+Phase 5 — cut over: point `mcp-server/` and `jobs/` at the real
+`PrismaConsentRepository`/`PrismaDSRRepository`/`PrismaLedgerRepository`
+instead of `mock-store/`'s `createSeededStore()`, and add the hash-chained
+ledger (append-only, hash of the previous row) — held until now because,
+per the spec, "a fake hash chain proves nothing."

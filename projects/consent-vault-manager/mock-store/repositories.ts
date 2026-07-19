@@ -26,6 +26,7 @@ import type {
   DSRRequest,
   DSRStatus,
   DSRType,
+  LawfulBasis,
   LedgerEntryType,
   Processor,
   ProcessorStatus,
@@ -57,14 +58,33 @@ export interface ListProcessorsParams extends PageParams {
   status?: ProcessorStatus;
 }
 
+export interface CreatePrincipalInput {
+  name: string;
+  email: string;
+  phone?: string;
+  isMinor: boolean;
+  guardianName?: string;
+  guardianEmail?: string;
+}
+
+export interface CreatePurposeInput {
+  description: string;
+  lawfulBasis: LawfulBasis;
+  retentionPeriodDays: number;
+}
+
 export interface ConsentRepository {
   getFiduciary(): Promise<DataFiduciary>;
 
   listPrincipals(params?: PageParams): Promise<DataPrincipal[]>;
   findPrincipalById(id: string): Promise<DataPrincipal | null>;
+  /** Onboards a new DataPrincipal. Added in Phase 4 for the principals CRUD endpoint. */
+  createPrincipal(input: CreatePrincipalInput): Promise<DataPrincipal>;
 
   listPurposes(params?: PageParams): Promise<Purpose[]>;
   findPurposeById(id: string): Promise<Purpose | null>;
+  /** Defines a new Purpose. Added in Phase 4 for the purposes CRUD endpoint. */
+  createPurpose(input: CreatePurposeInput): Promise<Purpose>;
 
   /** Backs the `create_consent_record` MCP tool. */
   createConsentArtifact(input: CreateConsentArtifactInput): Promise<ConsentArtifact>;
