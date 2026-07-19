@@ -9,20 +9,21 @@ This project lives at `projects/consent-vault-manager/` in this repo,
 alongside the unrelated LexEdu app (`backend/`, `frontend/`) — the two are
 independent projects sharing a repo, not a monorepo (yet).
 
-## Status: Phase 1 — MCP server against the mock store
+## Status: Phase 2 — BullMQ job workers against the mock store
 
 Done — Phase 0 (mock data layer):
 - `mock-store/types.ts` — domain model (`DataPrincipal`, `DataFiduciary`,
   `Purpose`, `ConsentArtifact`, `ConsentLedgerEntry`, `DSRRequest`,
-  `BreachEvent`).
+  `BreachEvent`, plus `Processor`, added in Phase 2 — see below).
 - `mock-store/repositories.ts` — `ConsentRepository`, `DSRRepository`,
   `LedgerRepository` interfaces a future Postgres implementation must
   satisfy unchanged.
 - `mock-store/store.ts` — `InMemoryConsentVaultStore`, implementing all
   three interfaces over in-memory `Map`s.
 - `mock-store/seed.ts` — deterministic fake data: 8 `DataPrincipal`s, 4
-  `Purpose`s, 11 `ConsentArtifact`s (granted/withdrawn/expired mix), 3
-  `DSRRequest`s (one overdue), 1 `BreachEvent`, plus matching
+  `Purpose`s, 12 `ConsentArtifact`s (granted/withdrawn/expired mix, including
+  one deliberately stale granted artifact for Phase 2 to sweep), 3
+  `DSRRequest`s (one overdue), 1 `BreachEvent`, 6 `Processor`s, plus matching
   `ConsentLedgerEntry` rows for every seeded historical state change.
 
 Done — Phase 1 (MCP server):
@@ -49,22 +50,71 @@ Done — Phase 1 (MCP server):
   error-path cases) against the seeded data. Not a typecheck — an actual
   client/server round trip.
 
-Not built yet (later phases per the spec): automation jobs (Phase 2–3),
-NestJS + Postgres backend (Phase 4), ledger hash-chaining (Phase 5), React
-dashboard (Phase 6), breach notice drafting (Phase 7).
+Done — Phase 2 (job workers):
+- `jobs/src/index.ts` — a long-running worker process holding **one**
+  `InMemoryConsentVaultStore` for its lifetime (recreating the store per job
+  run would reset state to the seed every tick, defeating the point).
+  Registers a BullMQ repeatable job on the `expiry-sweep` queue
+  (`EXPIRY_SWEEP_INTERVAL_MS`, default 2 minutes for the demo — set the env
+  var to `86400000` for daily) and starts two `Worker`s: one processes
+  `expiry-sweep` jobs, the other processes `withdrawal-cascade` jobs.
+- `jobs/src/expirySweep.ts` — `runExpirySweep(store)`: finds `granted`
+  `ConsentArtifact`s whose `expiresAt` has passed, flips each to `expired`
+  via `store.markExpired` (which itself writes the `ConsentLedgerEntry` —
+  see Phase 0's design), and logs `[would email] <principal>: consent for
+  purpose "..." expired ... — renewal requested`.
+- `jobs/src/withdrawalCascade.ts` — `runWithdrawalCascade(store, {
+  consentId })`: looks up the withdrawn artifact's purpose, finds every
+  `active` `Processor` tied to that purpose, marks each `purge_pending` via
+  `store.markProcessorForPurge` (writes a `processor_purge_flagged` ledger
+  entry per processor), and logs `[would notify] <processor>: purge data for
+  <principal> under purpose "..." ...`.
+- `jobs/scripts/fire-withdrawal-event.ts` — `npm run fire:withdrawal --
+  <consentId>` enqueues a mock "consent revoked" event onto the
+  `withdrawal-cascade` queue over Redis. It only touches Redis, not the
+  store directly — store state lives inside the running `npm start`
+  worker process, so this only works while that's running.
+- Both job functions are pure `(store, ...) => Promise<result>` functions,
+  unit-tested with `node:test` and zero Redis dependency
+  (`jobs/tests/*.test.ts`). `jobs/scripts/smoke-test.ts` covers the BullMQ
+  wiring itself: spawns the real worker process, drives it entirely through
+  Redis (one-off expiry-sweep tick + a fired withdrawal event), and asserts
+  on the worker's own log output — same shape of check as Phase 1's MCP
+  smoke test, adapted for a queue instead of a stdio client.
+- No Gmail/Calendar calls yet — every notification is a `console.log` stand-in
+  behind `jobs/src/notify.ts`'s `logWouldEmail`/`logWouldNotify`. Phase 3
+  swaps what's inside those two functions for real MCP calls; nothing about
+  the job logic that calls them changes.
 
-### Design decision made without a spec answer
+Not built yet (later phases per the spec): real Gmail/Calendar notifications
+(Phase 3), NestJS + Postgres backend (Phase 4), ledger hash-chaining
+(Phase 5), React dashboard (Phase 6), breach notice drafting (Phase 7).
+
+### Design decisions made without a spec answer
 
 The spec's domain model lists 7 entities but only 3 repositories. This
 groups them as:
 - `ConsentRepository` — `DataFiduciary`, `DataPrincipal`, `Purpose`,
-  `ConsentArtifact`
+  `ConsentArtifact`, `Processor` (added in Phase 2, see below)
 - `DSRRepository` — `DSRRequest`
 - `LedgerRepository` — `ConsentLedgerEntry`, `BreachEvent` (both
   audit/compliance history; `get_compliance_snapshot` needs both)
 
 If you intended a different split, it's a small refactor — the entity/method
 groupings, not the entities or method signatures themselves, would change.
+
+**`Processor` entity (Phase 2 addition).** The spec's withdrawal cascade
+automation (section 4, #2) says to "walk any downstream `processor` records
+tied to that purpose and mark them for purge/notify" — but `Processor` isn't
+in section 2's domain model table, so Phase 0/1 never modeled it. Rather than
+fake the cascade against nothing (which would violate "every job action must
+go through LedgerRepository, not just a console.log"), Phase 2 adds a minimal
+`Processor` entity (`id`, `name`, `purposeId`, `status`) to `types.ts`, two
+methods on `ConsentRepository` (`listProcessors`, `markProcessorForPurge`),
+and 6 seeded processors across the 4 purposes. If you had a different shape
+in mind (e.g. a separate `ProcessorRepository`, or fields like a processor's
+own DPO contact), it's additive to change — nothing else depends on the
+current shape beyond `jobs/src/withdrawalCascade.ts`.
 
 ### Hash-chaining is deliberately absent
 
@@ -88,9 +138,38 @@ cd mcp-server
 npm install
 npm run typecheck
 npm run smoke-test  # real client/server round trip over all 6 tools
+
+# jobs — its own package too; needs Redis running locally
+cd ../jobs
+npm install
+npm run typecheck
+npm test            # node:test over runExpirySweep/runWithdrawalCascade, no Redis needed
 ```
 
-To register the server with Claude Code from the repo root:
+`jobs/` needs a real Redis for anything BullMQ (the unit tests above don't
+touch it, but `start`/`smoke-test`/`fire:withdrawal` do):
+
+```bash
+redis-server --daemonize yes          # or: docker run -d -p 6379:6379 redis
+```
+
+Then, from `jobs/`:
+
+```bash
+npm run smoke-test   # spawns the worker, drives it over real Redis, asserts on its logs
+
+# or run it live in two terminals:
+npm start                              # terminal 1 — long-running worker
+npm run fire:withdrawal -- consent-4   # terminal 2 — fires a mock withdrawal event
+```
+
+`consent-4` and `consent-6` are seeded as already-withdrawn artifacts whose
+purposes (`purpose-4`/analytics, `purpose-1`/marketing) have active
+processors, so either makes a good manual demo target. The expiry sweep
+needs no manual trigger — `consent-12` is seeded deliberately stale, so the
+very first sweep tick (or `smoke-test`'s one-off trigger) expires it for you.
+
+To register the MCP server with Claude Code from the repo root:
 
 ```bash
 claude mcp add consent-vault -- projects/consent-vault-manager/mcp-server/node_modules/.bin/tsx projects/consent-vault-manager/mcp-server/src/index.ts
@@ -104,6 +183,8 @@ it's connected.
 
 ## Next step
 
-Phase 2: wire BullMQ (or `setInterval` for the demo) to run the expiry sweep
-and withdrawal cascade jobs against the mock store, logging what *would*
-happen — no real Gmail send yet, just console output.
+Phase 3: swap the `console.log` stand-ins in `jobs/src/notify.ts` for real
+Gmail MCP / Calendar MCP calls — the underlying consent data stays the mock
+store throughout. This is the point where the full orchestration loop (job →
+vault store → Gmail/Calendar tool → ledger write) is real end-to-end except
+for persistence.

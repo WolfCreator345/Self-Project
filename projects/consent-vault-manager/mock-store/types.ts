@@ -57,7 +57,8 @@ export type LedgerEntryType =
   | "consent_expired"
   | "dsr_created"
   | "dsr_resolved"
-  | "breach_logged";
+  | "breach_logged"
+  | "processor_purge_flagged";
 
 /**
  * One immutable row per state change. Append-only.
@@ -99,4 +100,22 @@ export interface BreachEvent {
   dpbNotifyDueAt: Date;
   severity: BreachSeverity;
   createdAt: Date;
+}
+
+export type ProcessorStatus = "active" | "purge_pending" | "purged";
+
+/**
+ * A downstream data processor that receives principal data under a given
+ * Purpose (e.g. a CRM, an analytics vendor). Not part of the spec's section 2
+ * table — added in Phase 2 because the withdrawal cascade automation (section
+ * 4, #2) explicitly needs "downstream processor records tied to that purpose"
+ * to walk and flag, and nothing in Phase 0/1 modeled them yet.
+ */
+export interface Processor {
+  id: string;
+  name: string;
+  purposeId: string;
+  status: ProcessorStatus;
+  createdAt: Date;
+  updatedAt: Date;
 }

@@ -6,6 +6,7 @@ import type {
   DataPrincipal,
   DSRRequest,
   LedgerEntryType,
+  Processor,
   Purpose,
 } from "./types.js";
 
@@ -16,6 +17,7 @@ export interface SeedData {
   consentArtifacts: ConsentArtifact[];
   dsrRequests: DSRRequest[];
   breachEvents: BreachEvent[];
+  processors: Processor[];
   ledgerEntries: ConsentLedgerEntry[];
 }
 
@@ -108,6 +110,19 @@ export function createSeedData(): SeedData {
     { id: "consent-9", principalId: "principal-6", purposeId: "purpose-1", status: "expired", grantedAt: d("2023-06-01"), expiresAt: d("2024-06-01"), noticeVersion: "v1.0", language: "en", createdAt: d("2023-06-01"), updatedAt: d("2024-06-01") },
     { id: "consent-10", principalId: "principal-7", purposeId: "purpose-3", status: "withdrawn", grantedAt: d("2026-03-01"), withdrawnAt: d("2026-05-10"), expiresAt: d("2026-08-28"), noticeVersion: "v1.3", language: "en", createdAt: d("2026-03-01"), updatedAt: d("2026-05-10") },
     { id: "consent-11", principalId: "principal-8", purposeId: "purpose-2", status: "granted", grantedAt: d("2026-07-01"), expiresAt: d("2029-07-01"), noticeVersion: "v1.3", language: "en", createdAt: d("2026-07-01"), updatedAt: d("2026-07-01") },
+    // Deliberately stale: still "granted" but expiresAt is well before "today" (2026-07-19) —
+    // simulates a record the expiry sweep job hasn't processed yet, so Phase 2's job has
+    // something real to do on its first run.
+    { id: "consent-12", principalId: "principal-7", purposeId: "purpose-1", status: "granted", grantedAt: d("2024-06-01"), expiresAt: d("2025-06-01"), noticeVersion: "v1.1", language: "en", createdAt: d("2024-06-01"), updatedAt: d("2024-06-01") },
+  ];
+
+  const processors: Processor[] = [
+    { id: "processor-1", name: "MailBlast CRM", purposeId: "purpose-1", status: "active", createdAt: d("2023-02-01"), updatedAt: d("2023-02-01") },
+    { id: "processor-2", name: "AdInsight Retargeting", purposeId: "purpose-1", status: "active", createdAt: d("2023-02-01"), updatedAt: d("2023-02-01") },
+    { id: "processor-3", name: "CoreBank Onboarding Suite", purposeId: "purpose-2", status: "active", createdAt: d("2023-02-01"), updatedAt: d("2023-02-01") },
+    { id: "processor-4", name: "SentinelGuard Fraud Detection", purposeId: "purpose-3", status: "active", createdAt: d("2023-02-01"), updatedAt: d("2023-02-01") },
+    { id: "processor-5", name: "PixelMetrics Analytics", purposeId: "purpose-4", status: "active", createdAt: d("2023-02-01"), updatedAt: d("2023-02-01") },
+    { id: "processor-6", name: "ChurnSignal ML Platform", purposeId: "purpose-4", status: "active", createdAt: d("2023-02-01"), updatedAt: d("2023-02-01") },
   ];
 
   const dsrRequests: DSRRequest[] = [
@@ -130,7 +145,7 @@ export function createSeedData(): SeedData {
 
   const ledgerEntries = buildLedgerEntries(consentArtifacts, dsrRequests, breachEvents);
 
-  return { fiduciary, principals, purposes, consentArtifacts, dsrRequests, breachEvents, ledgerEntries };
+  return { fiduciary, principals, purposes, consentArtifacts, dsrRequests, breachEvents, processors, ledgerEntries };
 }
 
 /** Derives one ledger row per historical state change, in chronological order. */

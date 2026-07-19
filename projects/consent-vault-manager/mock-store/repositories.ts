@@ -8,7 +8,8 @@
  *
  * Grouping note: the spec's domain model (section 2) lists 7 entities but only
  * 3 repositories. This implementation groups them as:
- *   - ConsentRepository: DataFiduciary, DataPrincipal, Purpose, ConsentArtifact
+ *   - ConsentRepository: DataFiduciary, DataPrincipal, Purpose, ConsentArtifact,
+ *                        Processor (added in Phase 2 — see types.ts)
  *   - DSRRepository:     DSRRequest
  *   - LedgerRepository:  ConsentLedgerEntry, BreachEvent (both audit/compliance
  *                        history, and get_compliance_snapshot needs both)
@@ -26,6 +27,8 @@ import type {
   DSRStatus,
   DSRType,
   LedgerEntryType,
+  Processor,
+  ProcessorStatus,
   Purpose,
 } from "./types.js";
 
@@ -49,6 +52,11 @@ export interface ListConsentArtifactsParams extends PageParams {
   status?: ConsentStatus;
 }
 
+export interface ListProcessorsParams extends PageParams {
+  purposeId?: string;
+  status?: ProcessorStatus;
+}
+
 export interface ConsentRepository {
   getFiduciary(): Promise<DataFiduciary>;
 
@@ -62,13 +70,18 @@ export interface ConsentRepository {
   createConsentArtifact(input: CreateConsentArtifactInput): Promise<ConsentArtifact>;
   /** Backs the `revoke_consent` MCP tool. Only valid from status "granted". */
   revokeConsentArtifact(id: string, reason: string): Promise<ConsentArtifact>;
-  /** Used by the (future) expiry sweep automation. */
+  /** Used by the expiry sweep automation (jobs/). */
   markExpired(id: string): Promise<ConsentArtifact>;
 
   /** Backs the `check_consent_status` MCP tool. Returns the most recent artifact for the pair. */
   findConsentArtifact(principalId: string, purposeId: string): Promise<ConsentArtifact | null>;
   findConsentArtifactById(id: string): Promise<ConsentArtifact | null>;
   listConsentArtifacts(params?: ListConsentArtifactsParams): Promise<ConsentArtifact[]>;
+
+  /** Used by the withdrawal cascade automation (jobs/) to find what to flag for a purpose. */
+  listProcessors(params?: ListProcessorsParams): Promise<Processor[]>;
+  /** Marks a processor for purge/notify and writes a ledger entry. Used by the withdrawal cascade automation. */
+  markProcessorForPurge(id: string, reason: string): Promise<Processor>;
 }
 
 // ─── DSRRepository ─────────────────────────────────────────────────────────

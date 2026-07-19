@@ -13,6 +13,7 @@ import type {
   ListConsentArtifactsParams,
   ListDSRRequestsParams,
   ListLedgerEntriesParams,
+  ListProcessorsParams,
   PageParams,
 } from "./repositories.js";
 import type {
@@ -23,6 +24,7 @@ import type {
   DataPrincipal,
   DSRRequest,
   DSRStatus,
+  Processor,
   Purpose,
 } from "./types.js";
 import type { SeedData } from "./seed.js";
@@ -46,6 +48,7 @@ export class InMemoryConsentVaultStore implements ConsentRepository, DSRReposito
   private readonly consentArtifacts = new Map<string, ConsentArtifact>();
   private readonly dsrRequests = new Map<string, DSRRequest>();
   private readonly breachEvents = new Map<string, BreachEvent>();
+  private readonly processors = new Map<string, Processor>();
   private readonly ledgerEntries: ConsentLedgerEntry[] = [];
   private sequence = 0;
 
@@ -56,6 +59,7 @@ export class InMemoryConsentVaultStore implements ConsentRepository, DSRReposito
     for (const c of seed.consentArtifacts) this.consentArtifacts.set(c.id, c);
     for (const req of seed.dsrRequests) this.dsrRequests.set(req.id, req);
     for (const b of seed.breachEvents) this.breachEvents.set(b.id, b);
+    for (const p of seed.processors) this.processors.set(p.id, p);
     for (const entry of seed.ledgerEntries) this.ledgerEntries.push(entry);
     this.sequence = seed.ledgerEntries.length;
   }
@@ -138,13 +142,19 @@ export class InMemoryConsentVaultStore implements ConsentRepository, DSRReposito
     const artifact = this.consentArtifacts.get(id);
     if (!artifact) throw new Error(`Unknown consent artifact: ${id}`);
 
+    const previousStatus = artifact.status;
     const updated: ConsentArtifact = { ...artifact, status: "expired", updatedAt: new Date() };
     this.consentArtifacts.set(id, updated);
     await this.appendEntry({
       entryType: "consent_expired",
       refId: id,
       principalId: artifact.principalId,
-      detail: { purposeId: artifact.purposeId },
+      detail: {
+        purposeId: artifact.purposeId,
+        previousStatus,
+        newStatus: updated.status,
+        changedAt: updated.updatedAt.toISOString(),
+      },
     });
     return updated;
   }
@@ -167,6 +177,27 @@ export class InMemoryConsentVaultStore implements ConsentRepository, DSRReposito
     if (params?.purposeId) items = items.filter((c) => c.purposeId === params.purposeId);
     if (params?.status) items = items.filter((c) => c.status === params.status);
     return paginate(items, params);
+  }
+
+  async listProcessors(params?: ListProcessorsParams): Promise<Processor[]> {
+    let items = [...this.processors.values()];
+    if (params?.purposeId) items = items.filter((p) => p.purposeId === params.purposeId);
+    if (params?.status) items = items.filter((p) => p.status === params.status);
+    return paginate(items, params);
+  }
+
+  async markProcessorForPurge(id: string, reason: string): Promise<Processor> {
+    const processor = this.processors.get(id);
+    if (!processor) throw new Error(`Unknown processor: ${id}`);
+
+    const updated: Processor = { ...processor, status: "purge_pending", updatedAt: new Date() };
+    this.processors.set(id, updated);
+    await this.appendEntry({
+      entryType: "processor_purge_flagged",
+      refId: id,
+      detail: { purposeId: processor.purposeId, processorName: processor.name, reason },
+    });
+    return updated;
   }
 
   // ─── DSRRepository ───────────────────────────────────────────────────────

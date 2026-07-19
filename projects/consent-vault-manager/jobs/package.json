@@ -1,0 +1,22 @@
+{
+  "name": "consent-vault-jobs",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "BullMQ job workers for the Consent Vault Manager, running against the mock-store (Phase 2).",
+  "scripts": {
+    "start": "tsx src/index.ts",
+    "fire:withdrawal": "tsx scripts/fire-withdrawal-event.ts",
+    "smoke-test": "tsx scripts/smoke-test.ts",
+    "test": "node --import tsx --test tests/**/*.test.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "bullmq": "^5.34.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0"
+  }
+}

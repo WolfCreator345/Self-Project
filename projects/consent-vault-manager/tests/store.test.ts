@@ -8,9 +8,10 @@ describe("seed data", () => {
     const store = createSeededStore();
     assert.equal((await store.listPrincipals()).length, 8);
     assert.equal((await store.listPurposes()).length, 4);
-    assert.equal((await store.listConsentArtifacts()).length, 11);
+    assert.equal((await store.listConsentArtifacts()).length, 12);
     assert.equal((await store.listDSRRequests()).length, 3);
     assert.equal((await store.listBreachEvents()).length, 1);
+    assert.equal((await store.listProcessors()).length, 6);
   });
 
   it("seeds a mix of consent statuses", async () => {
@@ -76,6 +77,19 @@ describe("ConsentRepository", () => {
     const store = createSeededStore();
     // consent-4 is seeded as already withdrawn.
     await assert.rejects(() => store.revokeConsentArtifact("consent-4", "already withdrawn"));
+  });
+
+  it("lists processors for a purpose and marks one for purge", async () => {
+    const store = createSeededStore();
+    const processors = await store.listProcessors({ purposeId: "purpose-4" });
+    assert.equal(processors.length, 2);
+
+    const before = (await store.listEntries()).length;
+    const updated = await store.markProcessorForPurge(processors[0]!.id, "test purge");
+    assert.equal(updated.status, "purge_pending");
+
+    const after = (await store.listEntries()).length;
+    assert.equal(after, before + 1);
   });
 });
 
