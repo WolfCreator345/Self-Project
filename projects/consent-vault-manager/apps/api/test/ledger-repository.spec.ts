@@ -1,3 +1,4 @@
+import { LEDGER_GENESIS_HASH } from "../src/consent-vault/hash-chain";
 import { PrismaLedgerRepository } from "../src/consent-vault/prisma-ledger.repository";
 import { PrismaService } from "../src/prisma/prisma.service";
 import { resetDatabase } from "./test-db";
@@ -49,5 +50,40 @@ describe("PrismaLedgerRepository", () => {
     const after = await ledger.listEntries();
     expect(after.length).toBe(before.length + 1);
     expect(await ledger.listBreachEvents()).toHaveLength(2);
+  });
+
+  it("seeds (post-backfill) a valid hash chain, reported intact end to end", async () => {
+    const entries = await ledger.listEntries();
+    const report = await ledger.verifyLedgerIntegrity();
+    expect(report.intact).toBe(true);
+    expect(report.entriesChecked).toBe(entries.length);
+    expect(report.firstBreak).toBeUndefined();
+
+    // Not necessarily sequence 1 — Postgres's autoincrement counter doesn't
+    // reset just because resetDatabase() deleted every row (only TRUNCATE
+    // ... RESTART IDENTITY would), so whichever entry has the lowest
+    // sequence in *this* run is the true first link, whatever number that is.
+    const first = entries.reduce((min, e) => (e.sequence < min.sequence ? e : min));
+    expect(first.previousHash).toBe(LEDGER_GENESIS_HASH);
+  });
+
+  it("stays intact after a new entry is appended at runtime", async () => {
+    await ledger.createBreachEvent({
+      description: "Another test breach",
+      detectedAt: new Date(),
+      dpbNotifyDueAt: new Date(Date.now() + 72 * 60 * 60 * 1000),
+      severity: "low",
+    });
+
+    const report = await ledger.verifyLedgerIntegrity();
+    expect(report.intact).toBe(true);
+  });
+
+  it("entriesChecked respects a date range while still verifying the full chain", async () => {
+    const allEntries = await ledger.listEntries();
+    const report = await ledger.verifyLedgerIntegrity({ from: new Date("2026-01-01"), to: new Date("2026-12-31") });
+    expect(report.intact).toBe(true);
+    expect(report.entriesChecked).toBeGreaterThan(0);
+    expect(report.entriesChecked).toBeLessThanOrEqual(allEntries.length);
   });
 });

@@ -128,13 +128,18 @@ model ConsentArtifact {
 // `sequence` gives the same monotonically increasing append order the mock
 // store's in-memory array index gave.
 model ConsentLedgerEntry {
-  id          String          @id @default(uuid())
-  sequence    Int             @default(autoincrement())
-  entryType   LedgerEntryType
-  refId       String
-  principalId String?
-  detail      Json
-  recordedAt  DateTime        @default(now())
+  id           String          @id @default(uuid())
+  sequence     Int             @default(autoincrement())
+  entryType    LedgerEntryType
+  refId        String
+  principalId  String?
+  detail       Json
+  recordedAt   DateTime        @default(now())
+  // Required as of the second Phase 5 migration — added nullable first so
+  // prisma/backfill-ledger-hash-chain.ts could fill in rows seeded before
+  // the hash chain existed, then tightened once every row had both.
+  previousHash String
+  hash         String
 
   @@index([refId])
   @@index([principalId])

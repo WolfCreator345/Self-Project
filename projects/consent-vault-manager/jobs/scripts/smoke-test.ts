@@ -5,6 +5,8 @@ import { fileURLToPath } from "node:url";
 
 import { Queue } from "bullmq";
 
+import { PrismaService } from "../../apps/api/src/prisma/prisma.service.js";
+import { resetDatabase } from "../../apps/api/test/test-db.js";
 import { REDIS_CONNECTION } from "../src/config.js";
 import type { ConfirmedNotificationJobData, PendingAction } from "../src/pendingActions.js";
 import {
@@ -18,11 +20,15 @@ import {
  * Spawns the real worker process (same tsx entry point `npm start` uses),
  * then drives it entirely through Redis — exactly as a human running
  * `npm start` in one terminal and the CLI scripts in another would. Not a
- * typecheck: a real BullMQ queue -> worker -> mock-store round trip,
- * including the Phase 3 staging/confirmation loop, verified by reading the
- * worker's own log output. Uses fake gmail-draft-id/calendar-event-id
- * values — it does not touch real Gmail/Calendar, unlike an actual human
- * confirmation via Claude Code. Requires Redis running locally (see README).
+ * typecheck: a real BullMQ queue -> worker -> Postgres round trip (Phase 5
+ * cutover; this used to run against mock-store), including the Phase 3
+ * staging/confirmation loop, verified by reading the worker's own log
+ * output. Uses fake gmail-draft-id/calendar-event-id values — it does not
+ * touch real Gmail/Calendar, unlike an actual human confirmation via Claude
+ * Code. Requires Redis and Postgres running locally (see README). Reseeds
+ * Postgres first since — unlike the old ephemeral mock store — real data
+ * persists across worker restarts, so consent-12/consent-4 need to be back
+ * in their fresh seeded state for this to be repeatable.
  */
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -63,6 +69,12 @@ async function confirmWithFakeId(pendingQueue: Queue<PendingAction>, jobId: stri
 }
 
 async function main() {
+  const prisma = new PrismaService();
+  await prisma.$connect();
+  await resetDatabase(prisma);
+  await prisma.$disconnect();
+  console.log("✓ reseeded the real Postgres database with mock-store's deterministic fixtures");
+
   let output = "";
   const child = spawn(path.join(jobsDir, "node_modules/.bin/tsx"), ["src/index.ts"], {
     cwd: jobsDir,

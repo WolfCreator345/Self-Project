@@ -5,11 +5,16 @@ import path from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 
+import { PrismaService } from "../../apps/api/src/prisma/prisma.service.js";
+import { resetDatabase } from "../../apps/api/test/test-db.js";
+
 /**
  * Spawns the server exactly as .mcp.json would (same relative command/args,
- * cwd = repo root) and drives all six tools over a real MCP connection —
- * not a typecheck, an actual client/server round trip against the seeded
- * mock store.
+ * cwd = repo root) and drives all seven tools over a real MCP connection —
+ * not a typecheck, an actual client/server round trip against the real
+ * Postgres-backed repositories (Phase 5 cutover; this used to run against
+ * an ephemeral mock store, fresh on every server start — Postgres data
+ * persists across runs, so this now reseeds first to stay repeatable).
  */
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -31,6 +36,12 @@ function textOf(result: Awaited<ReturnType<Client["callTool"]>>): unknown {
 }
 
 async function main() {
+  const prisma = new PrismaService();
+  await prisma.$connect();
+  await resetDatabase(prisma);
+  await prisma.$disconnect();
+  console.log("✓ reseeded the real Postgres database with mock-store's deterministic fixtures");
+
   await client.connect(transport);
 
   const { tools } = await client.listTools();
@@ -42,8 +53,9 @@ async function main() {
     "get_compliance_snapshot",
     "list_open_dsr_requests",
     "revoke_consent",
+    "verify_ledger_integrity",
   ]);
-  console.log(`✓ all 6 tools registered: ${toolNames.join(", ")}`);
+  console.log(`✓ all 7 tools registered: ${toolNames.join(", ")}`);
 
   // check_consent_status — known seeded pair
   const status = await client.callTool({
@@ -134,6 +146,25 @@ async function main() {
   });
   assert.equal(badSnapshot.isError, true);
   console.log("✓ get_compliance_snapshot rejects an invalid date as isError, not a crash");
+
+  // verify_ledger_integrity — should be intact after everything above, including
+  // the create_consent_record/revoke_consent/create_dsr_request writes just made
+  const integrity = await client.callTool({
+    name: "verify_ledger_integrity",
+    arguments: {},
+  });
+  const integrityData = textOf(integrity) as { intact: boolean; entriesChecked: number };
+  assert.equal(integrityData.intact, true);
+  assert.ok(integrityData.entriesChecked >= 21 + 3); // 21 seeded + at least the 3 writes made above
+  console.log(`✓ verify_ledger_integrity reports the chain intact (${integrityData.entriesChecked} entries)`);
+
+  // verify_ledger_integrity — malformed date range surfaces as a tool error
+  const badIntegrity = await client.callTool({
+    name: "verify_ledger_integrity",
+    arguments: { from_date: "2026-01-01T00:00:00.000Z" }, // missing to_date
+  });
+  assert.equal(badIntegrity.isError, true);
+  console.log("✓ verify_ledger_integrity rejects a one-sided date range as isError, not a crash");
 
   await client.close();
   console.log("\nAll smoke tests passed.");

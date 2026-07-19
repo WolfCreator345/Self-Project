@@ -15,6 +15,7 @@
  *                        history, and get_compliance_snapshot needs both)
  */
 
+import type { LedgerIntegrityBreak } from "./hashChain.js";
 import type {
   BreachEvent,
   BreachSeverity,
@@ -164,6 +165,12 @@ export interface ComplianceSnapshot {
   breachesLogged: number;
 }
 
+export interface LedgerIntegrityReport {
+  intact: boolean;
+  entriesChecked: number;
+  firstBreak?: LedgerIntegrityBreak;
+}
+
 export interface LedgerRepository {
   /** Append-only. There is deliberately no update/delete method on this interface. */
   appendEntry(input: AppendLedgerEntryInput): Promise<ConsentLedgerEntry>;
@@ -174,4 +181,13 @@ export interface LedgerRepository {
 
   /** Backs the `get_compliance_snapshot` MCP tool. */
   getComplianceSnapshot(dateRange: DateRange): Promise<ComplianceSnapshot>;
+
+  /**
+   * Backs the `verify_ledger_integrity` MCP tool (Phase 5). Always walks
+   * the full chain from genesis regardless of dateRange — a hash chain
+   * can't be verified in isolation without the true prior link — but when
+   * dateRange is given, only entries whose recordedAt falls inside it count
+   * toward entriesChecked.
+   */
+  verifyLedgerIntegrity(dateRange?: DateRange): Promise<LedgerIntegrityReport>;
 }

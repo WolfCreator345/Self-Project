@@ -1,3 +1,4 @@
+import { computeLedgerEntryHash, LEDGER_GENESIS_HASH } from "./hashChain.js";
 import type {
   BreachEvent,
   ConsentArtifact,
@@ -173,15 +174,34 @@ function buildLedgerEntries(
     drafts.push({ at: b.detectedAt, entryType: "breach_logged", refId: b.id, detail: { severity: b.severity } });
   }
 
+  // Timestamp order decides which sequence number a historical entry gets
+  // (this is a narrative fiction for seed data — these events never really
+  // happened in real time).
   drafts.sort((a, b) => a.at.getTime() - b.at.getTime());
 
-  return drafts.map((entry, index) => ({
-    id: `ledger-${index + 1}`,
-    sequence: index + 1,
-    entryType: entry.entryType,
-    refId: entry.refId,
-    principalId: entry.principalId,
-    detail: entry.detail,
-    recordedAt: entry.at,
-  }));
+  const withSequence = drafts.map((draft, index) => ({ ...draft, sequence: index + 1 }));
+
+  // Hash chaining always follows `sequence`, not the timestamp it was
+  // derived from — re-sorting here (a no-op given the above, but explicit)
+  // is what the real backfill script and PrismaLedgerRepository also do,
+  // since write order and timestamp order aren't guaranteed to agree once
+  // real wall-clock writes are involved.
+  withSequence.sort((a, b) => a.sequence - b.sequence);
+
+  let previousHash = LEDGER_GENESIS_HASH;
+  return withSequence.map((draft) => {
+    const partial = {
+      id: `ledger-${draft.sequence}`,
+      sequence: draft.sequence,
+      entryType: draft.entryType,
+      refId: draft.refId,
+      principalId: draft.principalId,
+      detail: draft.detail,
+      recordedAt: draft.at,
+    };
+    const hash = computeLedgerEntryHash(previousHash, partial);
+    const entry: ConsentLedgerEntry = { ...partial, previousHash, hash };
+    previousHash = hash;
+    return entry;
+  });
 }

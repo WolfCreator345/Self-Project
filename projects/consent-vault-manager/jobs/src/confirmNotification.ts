@@ -1,4 +1,4 @@
-import type { ConsentLedgerEntry, InMemoryConsentVaultStore, LedgerEntryType } from "../../mock-store/index.js";
+import type { ConsentLedgerEntry, LedgerEntryType, LedgerRepository } from "../../mock-store/index.js";
 import type { ConfirmedNotificationJobData, PendingActionKind } from "./pendingActions.js";
 
 function ledgerEntryTypeFor(kind: PendingActionKind): LedgerEntryType {
@@ -17,10 +17,13 @@ function ledgerEntryTypeFor(kind: PendingActionKind): LedgerEntryType {
  * confirmed was actually created via the real Gmail/Calendar MCP tools.
  * This is the only place Phase 3 touches LedgerRepository for
  * notifications — every confirmed send/create ends up here, with the real
- * Gmail draft id / Calendar event id recorded for traceability.
+ * Gmail draft id / Calendar event id recorded for traceability. Pure
+ * function over a LedgerRepository — mock-store's InMemoryConsentVaultStore
+ * satisfies this for unit tests, PrismaLedgerRepository satisfies it for
+ * the real notification-confirmed queue worker in index.ts.
  */
 export async function recordConfirmedNotification(
-  store: InMemoryConsentVaultStore,
+  store: LedgerRepository,
   data: ConfirmedNotificationJobData,
 ): Promise<ConsentLedgerEntry> {
   const { pending, gmailDraftId, calendarEventId, confirmedAt } = data;

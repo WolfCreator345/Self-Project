@@ -80,6 +80,8 @@ export function toDomainLedgerEntry(row: PrismaConsentLedgerEntry): ConsentLedge
     principalId: row.principalId ?? undefined,
     detail: (row.detail ?? {}) as Record<string, unknown>,
     recordedAt: row.recordedAt,
+    previousHash: row.previousHash,
+    hash: row.hash,
   };
 }
 

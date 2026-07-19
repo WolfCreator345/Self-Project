@@ -1,4 +1,4 @@
-import type { InMemoryConsentVaultStore } from "../../mock-store/index.js";
+import type { ConsentRepository } from "../../mock-store/index.js";
 import { logStaged } from "./notify.js";
 import type { PendingEmailAction, StagePendingAction } from "./pendingActions.js";
 
@@ -12,12 +12,14 @@ export interface ExpirySweepResult {
  * retentionPeriodDays) has passed, flips each to "expired" via
  * store.markExpired — which itself writes the ConsentLedgerEntry — and
  * stages a renewal reminder email for a human to confirm and actually send.
- * Pure function over the store (plus an injected staging callback) so it
- * can be unit tested without Redis/BullMQ, and driven by a repeatable job
- * in index.ts.
+ * Pure function over a ConsentRepository (plus an injected staging
+ * callback) so it can be unit tested against mock-store's
+ * InMemoryConsentVaultStore without Redis/BullMQ/Postgres, and driven for
+ * real by index.ts against the Postgres-backed PrismaConsentRepository —
+ * both satisfy this same interface.
  */
 export async function runExpirySweep(
-  store: InMemoryConsentVaultStore,
+  store: ConsentRepository,
   stagePendingAction: StagePendingAction,
 ): Promise<ExpirySweepResult> {
   const now = new Date();

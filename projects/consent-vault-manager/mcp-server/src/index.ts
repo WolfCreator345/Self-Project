@@ -3,16 +3,18 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 
-import { createSeededStore, type DSRType } from "../../mock-store/index.js";
+import { createRealRepositories } from "../../apps/api/src/consent-vault/create-real-repositories.js";
+import type { DSRType } from "../../mock-store/index.js";
 
 /**
- * Phase 1: this server is wired to the in-memory mock store, not a real
- * database. State only lives for the lifetime of this process — restarting
- * the server resets it back to the seeded data. Phase 4 swaps this for a
- * Postgres-backed ConsentRepository/DSRRepository/LedgerRepository without
- * touching the tool definitions below.
+ * Phase 5 cutover: wired to the real Prisma-backed repositories from
+ * apps/api instead of mock-store's in-memory createSeededStore(). Nothing
+ * about the tool definitions below changed — only what's behind them.
+ * mock-store's single combined object became three separate instances
+ * (consent/dsr/ledger), so each handler now calls the one that owns that
+ * method instead of a shared `store`.
  */
-const store = createSeededStore();
+const { prisma, consent, dsr, ledger } = await createRealRepositories();
 
 const server = new McpServer({
   name: "consent-vault",
@@ -48,7 +50,7 @@ server.registerTool(
   },
   async ({ principal_id, purpose_id, notice_version, language }) => {
     try {
-      const artifact = await store.createConsentArtifact({
+      const artifact = await consent.createConsentArtifact({
         principalId: principal_id,
         purposeId: purpose_id,
         noticeVersion: notice_version,
@@ -79,7 +81,7 @@ server.registerTool(
   },
   async ({ consent_id, reason }) => {
     try {
-      const artifact = await store.revokeConsentArtifact(consent_id, reason);
+      const artifact = await consent.revokeConsentArtifact(consent_id, reason);
       return ok(artifact);
     } catch (error) {
       return fail(error);
@@ -103,7 +105,7 @@ server.registerTool(
   },
   async ({ principal_id, purpose_id }) => {
     try {
-      const artifact = await store.findConsentArtifact(principal_id, purpose_id);
+      const artifact = await consent.findConsentArtifact(principal_id, purpose_id);
       return ok(artifact);
     } catch (error) {
       return fail(error);
@@ -126,7 +128,7 @@ server.registerTool(
   },
   async ({ overdue_only }) => {
     try {
-      const requests = await store.listDSRRequests(overdue_only ? { overdueOnly: true } : undefined);
+      const requests = await dsr.listDSRRequests(overdue_only ? { overdueOnly: true } : undefined);
       const open = requests.filter((request) => request.status !== "resolved");
       return ok(open);
     } catch (error) {
@@ -155,7 +157,7 @@ server.registerTool(
   },
   async ({ principal_id, type }) => {
     try {
-      const request = await store.createDSRRequest({ principalId: principal_id, type });
+      const request = await dsr.createDSRRequest({ principalId: principal_id, type });
       return ok(request);
     } catch (error) {
       return fail(error);
@@ -183,8 +185,45 @@ server.registerTool(
       const toDate = new Date(to);
       if (Number.isNaN(fromDate.getTime())) throw new Error(`Invalid "from" date: ${from}`);
       if (Number.isNaN(toDate.getTime())) throw new Error(`Invalid "to" date: ${to}`);
-      const snapshot = await store.getComplianceSnapshot({ from: fromDate, to: toDate });
+      const snapshot = await ledger.getComplianceSnapshot({ from: fromDate, to: toDate });
       return ok(snapshot);
+    } catch (error) {
+      return fail(error);
+    }
+  },
+);
+
+// ─── verify_ledger_integrity ─────────────────────────────────────────────────
+// Phase 5: walks the hash chain from genesis and reports whether it's
+// intact, plus the first broken link (if any). Read-only.
+server.registerTool(
+  "verify_ledger_integrity",
+  {
+    title: "Verify ledger integrity",
+    description:
+      "Recompute the ConsentLedgerEntry hash chain from genesis and confirm it's unbroken. Optional " +
+      "from/to only narrow which entries count toward entriesChecked in the report — the chain is " +
+      "always verified in full, since a link can't be trusted in isolation from what came before it. " +
+      "Read-only.",
+    inputSchema: {
+      from_date: z.string().optional().describe("ISO 8601 date/time — only affects entriesChecked, not what's verified"),
+      to_date: z.string().optional().describe("ISO 8601 date/time — only affects entriesChecked, not what's verified"),
+    },
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
+  },
+  async ({ from_date, to_date }) => {
+    try {
+      let dateRange: { from: Date; to: Date } | undefined;
+      if (from_date || to_date) {
+        if (!from_date || !to_date) throw new Error("Provide both from_date and to_date, or neither.");
+        const fromDate = new Date(from_date);
+        const toDate = new Date(to_date);
+        if (Number.isNaN(fromDate.getTime())) throw new Error(`Invalid "from_date": ${from_date}`);
+        if (Number.isNaN(toDate.getTime())) throw new Error(`Invalid "to_date": ${to_date}`);
+        dateRange = { from: fromDate, to: toDate };
+      }
+      const report = await ledger.verifyLedgerIntegrity(dateRange);
+      return ok(report);
     } catch (error) {
       return fail(error);
     }
@@ -193,3 +232,10 @@ server.registerTool(
 
 const transport = new StdioServerTransport();
 await server.connect(transport);
+
+async function shutdown() {
+  await prisma.$disconnect();
+  process.exit(0);
+}
+process.on("SIGINT", shutdown);
+process.on("SIGTERM", shutdown);

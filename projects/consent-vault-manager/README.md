@@ -9,7 +9,7 @@ This project lives at `projects/consent-vault-manager/` in this repo,
 alongside the unrelated LexEdu app (`backend/`, `frontend/`) — the two are
 independent projects sharing a repo, not a monorepo (yet).
 
-## Status: Phase 4 — real NestJS + Postgres backend (not wired in yet)
+## Status: Phase 5 — cut over, hash-chained ledger
 
 Done — Phase 0 (mock data layer):
 - `mock-store/types.ts` — domain model (`DataPrincipal`, `DataFiduciary`,
@@ -128,8 +128,7 @@ Done — Phase 4 (NestJS + Postgres backend, satisfying the same interfaces):
   `ConsentLedgerEntry`, `DSRRequest`, `BreachEvent`) plus `Processor` (the
   Phase 2 addition, mirrored here for interface parity), migrated via
   `prisma migrate dev`. `ConsentLedgerEntry.sequence` is a real Postgres
-  `SERIAL` — same append-order guarantee the mock's array index gave, still
-  no `hash`/`prevHash` (Phase 5, per the spec).
+  `SERIAL` — same append-order guarantee the mock's array index gave.
 - `apps/api/src/consent-vault/prisma-consent.repository.ts`,
   `prisma-dsr.repository.ts`, `prisma-ledger.repository.ts` — three
   `@Injectable()` NestJS providers, one per mock-store interface, each
@@ -176,12 +175,100 @@ Done — Phase 4 (NestJS + Postgres backend, satisfying the same interfaces):
   three spec files truncate/reseed the **same** real local Postgres
   database and would race each other in parallel workers.
 
-Not wired in yet: `mcp-server/` and `jobs/` still run entirely against
-`mock-store/`, per the spec — this phase only had to prove the real backend
-works against its own test suite. Wiring is Phase 5.
+Done — Phase 5 (hash-chained ledger, cutover, `verify_ledger_integrity`):
+- **Hash chain.** `ConsentLedgerEntry` gained `previousHash`/`hash`:
+  `hash = SHA-256(previousHash + canonicalStringify({id, sequence, entryType,
+  refId, principalId, detail, recordedAt}))`, the first entry chaining from
+  `LEDGER_GENESIS_HASH` (64 zero chars). `canonicalStringify` recursively
+  sorts object keys before hashing — without it, re-verifying after a
+  round trip through Postgres's `jsonb` column could fail on genuinely
+  untampered data, since key order isn't guaranteed to survive that trip.
+  Implemented in `mock-store/hashChain.ts` and, **deliberately duplicated**
+  (not imported) in `apps/api/src/consent-vault/hash-chain.ts` — apps/api's
+  compiled CommonJS runtime can't reach into mock-store's ESM source the
+  way `mcp-server`/`jobs` (run via `tsx`) can. Kept in sync via golden-vector
+  tests in both packages (`tests/store.test.ts`, `test/hash-chain.spec.ts`)
+  asserting byte-identical output for the same fixture input.
+- **Schema migration, expand/backfill/contract.** `previousHash`/`hash`
+  landed as nullable columns first (a migration against a table that
+  already had 21 seeded rows from Phase 4 would otherwise fail outright),
+  then `prisma/backfill-ledger-hash-chain.ts` computed the chain
+  retroactively for those pre-existing rows (in `sequence` order, not
+  `recordedAt` — see below), then a second migration tightened both
+  columns to `NOT NULL`. `apps/api/src/consent-vault/backfill-hash-chain.ts`
+  holds the actual backfill logic — idempotent and resumable, using a
+  `PENDING_HASH_SENTINEL` (`""`) rather than `null` to mark "not chained
+  yet" once the columns became `NOT NULL` (real hashes and
+  `LEDGER_GENESIS_HASH` are always 64 hex chars, so `""` is unambiguous).
+- **A real bug the backfill design surfaced.** The first implementation had
+  `seedDatabase()` reuse `previousHash`/`hash` values already computed by
+  mock-store's own `createSeedData()` — which assumes `sequence` starts at
+  1, true only the *first* time a database is ever seeded. Postgres's
+  autoincrement counter doesn't reset just because `TRUNCATE`/`deleteMany()`
+  wiped every row, so a re-seeded dev database (or this repo's own Jest
+  suite, resetting fixtures between tests) got rows whose *real* `sequence`
+  didn't match what the copied-over hash assumed — `verifyLedgerIntegrity`
+  correctly reported the chain as broken, because it *was*. Fixed by having
+  `seedDatabase()` insert with the pending sentinel and then call the same
+  `backfillLedgerHashChain()` the standalone script uses, so the chain is
+  always computed against whatever `sequence` Postgres actually assigned,
+  never trusted from elsewhere. (This is exactly the kind of thing a hash
+  chain is *for* — it caught a real seeding bug immediately, in testing,
+  rather than silently accepting a corrupted-looking-valid ledger.)
+- **`verify_ledger_integrity` (new MCP tool).** Added to `LedgerRepository`
+  as `verifyLedgerIntegrity(dateRange?)`, backing the 7th MCP tool. Always
+  walks the *entire* chain from genesis regardless of `from_date`/`to_date`
+  — a link can't be trusted in isolation from what came before it — those
+  params only narrow what counts toward `entriesChecked` in the report.
+  Returns `{ intact, entriesChecked, firstBreak? }`, where `firstBreak`
+  gives the sequence/id/reason (`hash_mismatch` vs `previous_hash_mismatch`)
+  of the first broken link, if any.
+- **Cutover.** `mcp-server/src/index.ts` and `jobs/src/index.ts` now import
+  `createRealRepositories()` from
+  `apps/api/src/consent-vault/create-real-repositories.ts` instead of
+  mock-store's `createSeededStore()`. That function manually instantiates
+  `PrismaService` + the three repository classes — no Nest DI container
+  involved, which works because the classes don't actually need Nest's
+  reflection-based injection to function (they just take dependencies as
+  plain constructor arguments, exactly like apps/api's own Jest tests
+  already did: `new PrismaConsentRepository(prisma, ledger)`).
+  `@Injectable()` is a harmless no-op decorator outside a Nest container.
+  Verified empirically, not just in theory, that `tsx` can load this
+  NestJS-decorated source as a genuine cross-package *value* import (not
+  type-only) and successfully query Postgres — see the commit history for
+  the standalone probe that confirmed it before the real cutover.
+- **Three repos, not one combined object.** mock-store's `createSeededStore()`
+  returned one object satisfying all three interfaces; the real cutover
+  gives `mcp-server`/`jobs` three separate variables (`consent`, `dsr`,
+  `ledger`) instead. Tool/job handler bodies needed a small mechanical edit
+  (`store.createConsentArtifact(...)` → `consent.createConsentArtifact(...)`,
+  etc.) — tool *definitions* (name, description, schema, annotations)
+  didn't change at all, per the brief.
+- **`ConsentRepository`/`LedgerRepository`, not `InMemoryConsentVaultStore`.**
+  `jobs/src/expirySweep.ts`, `withdrawalCascade.ts`, and
+  `confirmNotification.ts` were typed to accept the concrete mock class —
+  narrowed to the specific interface each actually uses
+  (`ConsentRepository` for the first two, `LedgerRepository` for the third)
+  so the same functions work against both mock-store's
+  `InMemoryConsentVaultStore` (used by `jobs/tests/*.test.ts`, unchanged —
+  see "mock-store stays" below) and apps/api's Prisma-backed classes (used
+  by the live `jobs/src/index.ts` worker).
+- **mock-store stays, and is now the test double.** Per the brief: rather
+  than deleting it, mock-store is what `jobs/tests/*.test.ts` and
+  `mock-store`'s own suite run against — fast, no live Postgres needed. It
+  needed the real hash-chain algorithm too (not a stub), since these tests
+  now exercise the same interface real callers use, including any future
+  test of integrity-checking logic against mock data.
+- **A Jest-specific fix.** `mock-store/store.ts`/`seed.ts` gained a genuine
+  *runtime* (not type-only) dependency on `hashChain.ts` — ts-jest's default
+  CommonJS resolution doesn't know NodeNext-style `./hashChain.js` should
+  resolve to the sibling `.ts` file (tsx handles this automatically; ts-jest
+  doesn't). Fixed with a `moduleNameMapper` in `apps/api/package.json`
+  stripping `.js` from relative specifiers before ts-jest resolves them.
 
-Not built yet (later phases per the spec): ledger hash-chaining (Phase 5),
-React dashboard (Phase 6), breach notice drafting (Phase 7).
+Not built yet (later phases per the spec): React dashboard (Phase 6), breach
+notice drafting, DSR SLA escalation reminders, weekly compliance report
+export (Phase 7).
 
 ### Design decisions made without a spec answer
 
@@ -235,102 +322,46 @@ references instead of mock-store's one combined store object — same method
 calls, different container shape. Flagging it now since Phase 4 was
 explicitly scoped to not wire that up yet.
 
-### Hash-chaining is deliberately absent
+### Hash-chaining (Phase 5)
 
-`ConsentLedgerEntry` has no `hash`/`prevHash` fields yet. The spec holds
-hash-chaining until Phase 5 against the real ledger table ("a fake hash
-chain proves nothing"), so Phase 0 keeps the type honest to that: an
-append-only log ordered by `sequence`, nothing more.
+Held back from Phase 0 through Phase 4 deliberately — the spec's own framing
+is "a fake hash chain proves nothing," and there was no real ledger table to
+chain until Phase 4 built one. See the Phase 5 section above for the
+algorithm, the expand/backfill/contract migration sequence, and a real bug
+the backfill design caught along the way.
 
 ## Running it
 
+`mcp-server/` and `jobs/` now run against the real backend (Phase 5
+cutover), so **set up `apps/api` and its Postgres first** — everything else
+depends on it.
+
+### 1. mock-store — no dependencies, start here
+
 ```bash
-# mock-store — demo, tests, typecheck
 cd projects/consent-vault-manager
 npm install
 npm run demo        # prints seeded data + a create/revoke round trip
-npm test            # node:test suite over the mock store
+npm test            # node:test suite over the mock store, incl. hash-chain tests
 npm run typecheck   # tsc --noEmit
-
-# mcp-server — its own package, its own node_modules
-cd mcp-server
-npm install
-npm run typecheck
-npm run smoke-test  # real client/server round trip over all 6 tools
-
-# jobs — its own package too; needs Redis running locally
-cd ../jobs
-npm install
-npm run typecheck
-npm test            # node:test over runExpirySweep/runWithdrawalCascade, no Redis needed
 ```
 
-`jobs/` needs a real Redis for anything BullMQ (the unit tests above don't
-touch it, but `start`/`smoke-test`/`fire:withdrawal` do):
-
-```bash
-redis-server --daemonize yes          # or: docker run -d -p 6379:6379 redis
-```
-
-Then, from `jobs/`:
-
-```bash
-npm run smoke-test   # spawns the worker, drives it over real Redis, asserts on its logs (fake ids only)
-
-# or run it live in two terminals:
-npm start                              # terminal 1 — long-running worker
-npm run fire:withdrawal -- consent-4   # terminal 2 — fires a mock withdrawal event
-```
-
-`consent-4` and `consent-6` are seeded as already-withdrawn artifacts whose
-purposes (`purpose-4`/analytics, `purpose-1`/marketing) have active
-processors, so either makes a good manual demo target. The expiry sweep
-needs no manual trigger — `consent-12` is seeded deliberately stale, so the
-very first sweep tick expires it for you.
-
-With the worker running, drafted notifications show up on the
-`pending-notifications` queue instead of being sent — review and confirm
-them from a second terminal:
-
-```bash
-npm run list-pending                                          # see every drafted email/event awaiting confirmation
-# ... create the real Gmail draft / Calendar event via Claude Code ...
-npm run confirm -- <pendingJobId> --gmail-draft-id=<id>       # for a drafted email
-npm run confirm -- <pendingJobId> --calendar-event-id=<id>    # for a drafted calendar event
-```
-
-`confirm-notification.ts` has no Gmail/Calendar credentials itself — it only
-records that a human (via Claude Code's live MCP tool access) already
-created the real draft/event. Skipping straight to `confirm` without
-actually creating anything just puts a fabricated id on the ledger, so don't.
-
-To register the MCP server with Claude Code from the repo root:
-
-```bash
-claude mcp add consent-vault -- projects/consent-vault-manager/mcp-server/node_modules/.bin/tsx projects/consent-vault-manager/mcp-server/src/index.ts
-```
-
-or just rely on the committed `.mcp.json` at the repo root, which Claude Code
-picks up automatically for anyone working in this repo (after they've run
-`npm install` inside `mcp-server/`). Try asking it things like "which DSRs
-are overdue" or "check consent status for principal-1 on purpose-2" once
-it's connected.
-
-### apps/api — NestJS + Postgres
+### 2. apps/api — NestJS + Postgres
 
 ```bash
 # from the repo root
 docker compose up -d          # local Postgres 16 on :5432
-# (this sandbox's Docker daemon couldn't start, so Phase 4 was verified
+# (this sandbox's Docker daemon couldn't start, so Phase 4/5 were verified
 # against a natively-installed Postgres 16 with matching credentials
 # instead — docker-compose.yml is what you'll actually use)
 
 cd projects/consent-vault-manager/apps/api
 npm install
-cp .env.example .env          # adjust if you changed the compose credentials
-npx prisma migrate dev        # applies prisma/migrations/, generates the client
-npm run prisma:seed           # loads mock-store's exact seed data via Prisma
-npm test                      # 13 Jest tests against the real database (--runInBand)
+cp .env.example .env                    # adjust if you changed the compose credentials
+npx prisma migrate dev                  # applies prisma/migrations/ (incl. the hash-chain columns), generates the client
+npm run prisma:seed                     # loads mock-store's exact seed data via Prisma, hash-chained
+npm run prisma:backfill-hash-chain      # no-op on a fresh seed (already chained) — for pre-Phase-5 data
+npm test                                # 19 Jest tests against the real database (--runInBand)
 npm run typecheck
 
 npm start                     # nest build && node dist/apps/api/src/main.js
@@ -360,10 +391,88 @@ by bundling everything into one `dist/main.js` regardless of source
 location, but Prisma's native query-engine binary and webpack bundling are
 a known friction point, so build+run was the safer choice for this phase.)
 
+**Postgres credentials are picked up automatically, even from `mcp-server/`
+and `jobs/`.** Prisma's generated client auto-loads `.env` from near where
+it was generated (`apps/api/`), regardless of the calling process's own
+directory — verified empirically before relying on it. Neither
+`mcp-server/` nor `jobs/` need their own `.env` or `DATABASE_URL` exports.
+
+### 3. mcp-server — its own package, its own node_modules
+
+```bash
+cd ../mcp-server   # projects/consent-vault-manager/mcp-server
+npm install
+npm run typecheck
+npm run smoke-test  # reseeds Postgres, then a real client/server round trip over all 7 tools
+```
+
+Postgres data persists across server restarts (unlike the old ephemeral
+mock store), so the smoke test reseeds the database itself first —
+otherwise re-running it would accumulate extra DSR requests/consent
+artifacts from the previous run and its count-based assertions would drift.
+
+To register the MCP server with Claude Code from the repo root:
+
+```bash
+claude mcp add consent-vault -- projects/consent-vault-manager/mcp-server/node_modules/.bin/tsx projects/consent-vault-manager/mcp-server/src/index.ts
+```
+
+or just rely on the committed `.mcp.json` at the repo root, which Claude Code
+picks up automatically for anyone working in this repo (after `npm install`
+in both `mcp-server/` and `apps/api/`, and Postgres seeded). Try asking it
+things like "which DSRs are overdue," "check consent status for principal-1
+on purpose-2," or "verify the ledger integrity" once it's connected. If
+you already had it connected before pulling Phase 5, reconnect/restart —
+MCP tool lists are fetched once per session and won't pick up the new
+`verify_ledger_integrity` tool otherwise.
+
+### 4. jobs — its own package too; needs Redis *and* Postgres running
+
+```bash
+redis-server --daemonize yes          # or: docker run -d -p 6379:6379 redis
+
+cd ../jobs   # projects/consent-vault-manager/jobs
+npm install
+npm run typecheck
+npm test             # node:test over runExpirySweep/runWithdrawalCascade — still against mock-store, no Redis/Postgres needed
+npm run smoke-test   # reseeds Postgres, spawns the real worker, drives it over real Redis, asserts on its logs (fake gmail/calendar ids)
+```
+
+`jobs/tests/*.test.ts` deliberately keep testing against mock-store's
+`InMemoryConsentVaultStore` (per the brief: mock-store stays as the test
+double) — only `jobs/src/index.ts`, the live worker, was cut over to the
+real repositories.
+
+```bash
+# run it live in two terminals:
+npm start                              # terminal 1 — long-running worker, real Postgres + Redis
+npm run fire:withdrawal -- consent-4   # terminal 2 — fires a mock withdrawal event
+```
+
+`consent-4` and `consent-6` are seeded as already-withdrawn artifacts whose
+purposes (`purpose-4`/analytics, `purpose-1`/marketing) have active
+processors, so either makes a good manual demo target. The expiry sweep
+needs no manual trigger — `consent-12` is seeded deliberately stale, so the
+very first sweep tick expires it for you (as long as Postgres has been
+freshly reseeded — see step 2).
+
+With the worker running, drafted notifications show up on the
+`pending-notifications` queue instead of being sent — review and confirm
+them from a second terminal:
+
+```bash
+npm run list-pending                                          # see every drafted email/event awaiting confirmation
+# ... create the real Gmail draft / Calendar event via Claude Code ...
+npm run confirm -- <pendingJobId> --gmail-draft-id=<id>       # for a drafted email
+npm run confirm -- <pendingJobId> --calendar-event-id=<id>    # for a drafted calendar event
+```
+
+`confirm-notification.ts` has no Gmail/Calendar credentials itself — it only
+records that a human (via Claude Code's live MCP tool access) already
+created the real draft/event. Skipping straight to `confirm` without
+actually creating anything just puts a fabricated id on the ledger, so don't.
+
 ## Next step
 
-Phase 5 — cut over: point `mcp-server/` and `jobs/` at the real
-`PrismaConsentRepository`/`PrismaDSRRepository`/`PrismaLedgerRepository`
-instead of `mock-store/`'s `createSeededStore()`, and add the hash-chained
-ledger (append-only, hash of the previous row) — held until now because,
-per the spec, "a fake hash chain proves nothing."
+Phase 6 — React dashboard (consent status, DSR queue, compliance snapshot)
+against the real `apps/api`, per the spec.

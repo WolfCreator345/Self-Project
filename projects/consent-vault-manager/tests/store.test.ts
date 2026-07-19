@@ -1,7 +1,13 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { createSeededStore } from "../mock-store/index.js";
+import {
+  computeLedgerEntryHash,
+  createSeededStore,
+  LEDGER_GENESIS_HASH,
+  verifyChain,
+  type HashedLedgerEntry,
+} from "../mock-store/index.js";
 
 describe("seed data", () => {
   it("seeds the expected entity counts", async () => {
@@ -92,6 +98,11 @@ describe("ConsentRepository", () => {
 
     const after = (await store.listEntries()).length;
     assert.equal(after, before + 2);
+
+    const entries = await store.listEntries({ refId: created.id });
+    assert.equal(entries.length, 2);
+    assert.equal(entries[1]!.previousHash, entries[0]!.hash);
+    assert.notEqual(entries[0]!.hash, entries[1]!.hash);
   });
 
   it("rejects revoking a consent artifact that isn't granted", async () => {
@@ -134,5 +145,131 @@ describe("LedgerRepository", () => {
     assert.ok(snapshot.consentsGranted > 0);
     assert.ok(snapshot.dsrOverdue >= 1);
     assert.equal(snapshot.breachesLogged, 1);
+  });
+
+  it("seeds a valid hash chain, reported intact end to end", async () => {
+    const store = createSeededStore();
+    const entries = await store.listEntries();
+    const report = await store.verifyLedgerIntegrity();
+    assert.equal(report.intact, true);
+    assert.equal(report.entriesChecked, entries.length);
+    assert.equal(report.firstBreak, undefined);
+
+    const first = entries.find((e) => e.sequence === 1);
+    assert.equal(first?.previousHash, LEDGER_GENESIS_HASH);
+  });
+
+  it("stays intact after new entries are appended at runtime", async () => {
+    const store = createSeededStore();
+    await store.createDSRRequest({ principalId: "principal-1", type: "access" });
+    await store.createConsentArtifact({
+      principalId: "principal-2",
+      purposeId: "purpose-1",
+      noticeVersion: "v1.0",
+      language: "en",
+    });
+
+    const report = await store.verifyLedgerIntegrity();
+    assert.equal(report.intact, true);
+  });
+
+  it("entriesChecked respects a date range while still verifying the full chain", async () => {
+    const store = createSeededStore();
+    const allEntries = await store.listEntries();
+    const report = await store.verifyLedgerIntegrity({ from: new Date("2026-01-01"), to: new Date("2026-12-31") });
+    assert.equal(report.intact, true);
+    assert.ok(report.entriesChecked > 0);
+    assert.ok(report.entriesChecked <= allEntries.length);
+  });
+});
+
+describe("hash chain golden vectors", () => {
+  // These exact hash strings are also hardcoded in
+  // apps/api/test/hash-chain.spec.ts (apps/api's duplicated implementation
+  // of this same algorithm — see hashChain.ts's header comment for why it's
+  // duplicated rather than imported). If both test suites pass, the two
+  // independently-maintained implementations agree.
+  const GOLDEN_HASH_1 = "ef5ad3963759550ad1620268e41f7e9122c7ec8de9d3dbde5de82e1970f7235c";
+  const GOLDEN_HASH_2 = "10cd7601ecfe8c6d2a728d18faff76a3e978a4ae6ccc8658de4216e11521130e";
+
+  it("matches apps/api's implementation for the same fixture entries", () => {
+    const entry1 = {
+      id: "golden-1",
+      sequence: 1,
+      entryType: "consent_granted" as const,
+      refId: "consent-golden",
+      principalId: "principal-golden",
+      detail: { purposeId: "purpose-golden" },
+      recordedAt: new Date("2026-01-01T00:00:00.000Z"),
+    };
+    const hash1 = computeLedgerEntryHash(LEDGER_GENESIS_HASH, entry1);
+    assert.equal(hash1, GOLDEN_HASH_1);
+
+    const entry2 = {
+      id: "golden-2",
+      sequence: 2,
+      entryType: "consent_withdrawn" as const,
+      refId: "consent-golden",
+      principalId: "principal-golden",
+      detail: { reason: "golden test" },
+      recordedAt: new Date("2026-01-02T00:00:00.000Z"),
+    };
+    const hash2 = computeLedgerEntryHash(hash1, entry2);
+    assert.equal(hash2, GOLDEN_HASH_2);
+  });
+});
+
+describe("hash chain (verifyChain)", () => {
+  function buildFixtureChain(): HashedLedgerEntry[] {
+    const drafts = [
+      {
+        id: "fixture-1",
+        sequence: 1,
+        entryType: "consent_granted",
+        refId: "consent-fixture",
+        principalId: "principal-fixture",
+        detail: { purposeId: "purpose-fixture" },
+        recordedAt: new Date("2026-01-01T00:00:00.000Z"),
+      },
+      {
+        id: "fixture-2",
+        sequence: 2,
+        entryType: "consent_withdrawn",
+        refId: "consent-fixture",
+        principalId: "principal-fixture",
+        detail: { reason: "fixture" },
+        recordedAt: new Date("2026-01-02T00:00:00.000Z"),
+      },
+    ];
+    let previousHash = LEDGER_GENESIS_HASH;
+    return drafts.map((partial) => {
+      const hash = computeLedgerEntryHash(previousHash, partial);
+      const entry: HashedLedgerEntry = { ...partial, previousHash, hash };
+      previousHash = hash;
+      return entry;
+    });
+  }
+
+  it("verifies an untampered chain as intact", () => {
+    const result = verifyChain(buildFixtureChain());
+    assert.equal(result.intact, true);
+  });
+
+  it("detects a tampered field via hash mismatch", () => {
+    const chain = buildFixtureChain();
+    chain[0]!.detail = { purposeId: "tampered" };
+    const result = verifyChain(chain);
+    assert.equal(result.intact, false);
+    assert.equal(result.firstBreak?.sequence, 1);
+    assert.equal(result.firstBreak?.reason, "hash_mismatch");
+  });
+
+  it("detects a broken previousHash link", () => {
+    const chain = buildFixtureChain();
+    chain[1]!.previousHash = "corrupted".padEnd(64, "0");
+    const result = verifyChain(chain);
+    assert.equal(result.intact, false);
+    assert.equal(result.firstBreak?.sequence, 2);
+    assert.equal(result.firstBreak?.reason, "previous_hash_mismatch");
   });
 });

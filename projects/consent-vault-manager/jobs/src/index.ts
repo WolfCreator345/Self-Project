@@ -1,6 +1,6 @@
 import { Queue, Worker, type Job } from "bullmq";
 
-import { createSeededStore } from "../../mock-store/index.js";
+import { createRealRepositories } from "../../apps/api/src/consent-vault/create-real-repositories.js";
 import { EXPIRY_SWEEP_INTERVAL_MS, REDIS_CONNECTION } from "./config.js";
 import { recordConfirmedNotification } from "./confirmNotification.js";
 import { runExpirySweep } from "./expirySweep.js";
@@ -15,14 +15,15 @@ import {
 import { runWithdrawalCascade, type WithdrawalCascadeJobData } from "./withdrawalCascade.js";
 
 /**
- * One InMemoryConsentVaultStore instance for the lifetime of this process,
- * shared by every job processor via closure. Recreating it per job run
- * would reset state back to the seed on every tick — the whole point of
- * markExpired/markProcessorForPurge/appendEntry is that they persist across
- * runs until Phase 4 swaps this for the real Postgres-backed store.
+ * Phase 5 cutover: one connected PrismaService (and the three repositories
+ * built on it) for the lifetime of this process, shared by every job
+ * processor via closure — same reasoning as Phase 0-3's single
+ * InMemoryConsentVaultStore had: state needs to persist across ticks, not
+ * reset on every run. The difference now is Postgres itself holds that
+ * state, not this process's memory, so it also survives a restart.
  */
-const store = createSeededStore();
-console.log(`[jobs] starting against a freshly seeded mock store (pid ${process.pid})`);
+const { prisma, consent, ledger } = await createRealRepositories();
+console.log(`[jobs] starting against the real Postgres-backed repositories (pid ${process.pid})`);
 
 const pendingQueue = new Queue<PendingAction>(PENDING_NOTIFICATIONS_QUEUE, { connection: REDIS_CONNECTION });
 async function stagePendingAction(action: PendingAction) {
@@ -45,7 +46,7 @@ console.log(`[jobs] expiry sweep scheduled every ${EXPIRY_SWEEP_INTERVAL_MS}ms`)
 const expirySweepWorker = new Worker(
   EXPIRY_SWEEP_QUEUE,
   async () => {
-    const result = await runExpirySweep(store, stagePendingAction);
+    const result = await runExpirySweep(consent, stagePendingAction);
     console.log(
       `[expiry-sweep] checked at ${result.checkedAt.toISOString()} — ${result.expired.length} artifact(s) expired` +
         (result.expired.length > 0 ? ` (${result.expired.join(", ")})` : ""),
@@ -58,7 +59,7 @@ const expirySweepWorker = new Worker(
 const withdrawalCascadeWorker = new Worker<WithdrawalCascadeJobData>(
   WITHDRAWAL_CASCADE_QUEUE,
   async (job: Job<WithdrawalCascadeJobData>) => {
-    const result = await runWithdrawalCascade(store, job.data, stagePendingAction);
+    const result = await runWithdrawalCascade(consent, job.data, stagePendingAction);
     console.log(
       `[withdrawal-cascade] consent ${result.consentId} — ${result.flaggedProcessorIds.length} processor(s) flagged for purge` +
         (result.flaggedProcessorIds.length > 0 ? ` (${result.flaggedProcessorIds.join(", ")})` : ""),
@@ -70,13 +71,13 @@ const withdrawalCascadeWorker = new Worker<WithdrawalCascadeJobData>(
 
 /**
  * Processes confirmations from scripts/confirm-notification.ts. Runs inside
- * this same process — the only one holding the real store instance — so the
- * ledger entry lands next to the state mutation the original job made.
+ * this same process — the only one holding the real repository instances —
+ * so the ledger entry lands next to the state mutation the original job made.
  */
 const notificationConfirmedWorker = new Worker<ConfirmedNotificationJobData>(
   NOTIFICATION_CONFIRMED_QUEUE,
   async (job: Job<ConfirmedNotificationJobData>) => {
-    const entry = await recordConfirmedNotification(store, job.data);
+    const entry = await recordConfirmedNotification(ledger, job.data);
     logConfirmed(
       `${job.data.pending.kind} for ${job.data.pending.refId} -> ledger entry ${entry.id} (seq ${entry.sequence})`,
     );
@@ -109,6 +110,7 @@ async function shutdown() {
     notificationConfirmedWorker.close(),
     expirySweepQueue.close(),
     pendingQueue.close(),
+    prisma.$disconnect(),
   ]);
   process.exit(0);
 }

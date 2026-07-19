@@ -1,4 +1,4 @@
-import { addDays, type InMemoryConsentVaultStore } from "../../mock-store/index.js";
+import { addDays, type ConsentRepository } from "../../mock-store/index.js";
 import { logStaged } from "./notify.js";
 import type { PendingCalendarAction, PendingEmailAction, StagePendingAction } from "./pendingActions.js";
 
@@ -20,12 +20,14 @@ const PURGE_FOLLOWUP_DURATION_MINUTES = 30;
  * marks each for purge (store.markProcessorForPurge — which writes the
  * ConsentLedgerEntry), and stages both a purge-notice email and a 7-day
  * follow-up calendar event for a human to confirm and actually create.
- * Pure function over the store (plus an injected staging callback), driven
- * by the withdrawal-cascade queue's worker in index.ts, and fireable
- * manually via scripts/fire-withdrawal-event.ts.
+ * Pure function over a ConsentRepository (plus an injected staging
+ * callback) — mock-store's InMemoryConsentVaultStore satisfies this for
+ * unit tests, PrismaConsentRepository satisfies it for the real
+ * withdrawal-cascade queue worker in index.ts. Fireable manually via
+ * scripts/fire-withdrawal-event.ts.
  */
 export async function runWithdrawalCascade(
-  store: InMemoryConsentVaultStore,
+  store: ConsentRepository,
   data: WithdrawalCascadeJobData,
   stagePendingAction: StagePendingAction,
 ): Promise<WithdrawalCascadeResult> {

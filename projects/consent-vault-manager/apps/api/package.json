@@ -2,7 +2,7 @@
   "name": "consent-vault-api",
   "version": "0.1.0",
   "private": true,
-  "description": "NestJS + Prisma/PostgreSQL backend for the Consent Vault Manager (Phase 4). Implements the same ConsentRepository/DSRRepository/LedgerRepository interfaces as mock-store/.",
+  "description": "NestJS + Prisma/PostgreSQL backend for the Consent Vault Manager (Phase 4/5). Implements the same ConsentRepository/DSRRepository/LedgerRepository interfaces as mock-store/, with a hash-chained ledger.",
   "scripts": {
     "build": "nest build",
     "start": "npm run build && npm run start:prod",
@@ -11,6 +11,7 @@
     "prisma:migrate": "prisma migrate dev",
     "prisma:deploy": "prisma migrate deploy",
     "prisma:seed": "tsx prisma/seed.ts",
+    "prisma:backfill-hash-chain": "tsx prisma/backfill-ledger-hash-chain.ts",
     "test": "jest --runInBand",
     "typecheck": "tsc --noEmit"
   },
@@ -43,6 +44,9 @@
       "^.+\\.(t|j)s$": "ts-jest"
     },
     "collectCoverageFrom": ["src/**/*.(t|j)s"],
-    "testEnvironment": "node"
+    "testEnvironment": "node",
+    "moduleNameMapper": {
+      "^(\\.{1,2}/.*)\\.js$": "$1"
+    }
   }
 }

@@ -65,8 +65,9 @@ export type LedgerEntryType =
 
 /**
  * One immutable row per state change. Append-only.
- * Hash-chaining (prevHash/hash) is intentionally NOT part of this Phase 0 shape —
- * it's added in Phase 5 against the real Postgres-backed ledger table, per the spec.
+ * Hash-chained as of Phase 5: `hash` = SHA-256(previousHash + this entry's own
+ * canonicalized fields), `previousHash` links to the prior entry's `hash`
+ * (or LEDGER_GENESIS_HASH for the very first entry). See hashChain.ts.
  */
 export interface ConsentLedgerEntry {
   id: string;
@@ -78,6 +79,8 @@ export interface ConsentLedgerEntry {
   principalId?: string;
   detail: Record<string, unknown>;
   recordedAt: Date;
+  previousHash: string;
+  hash: string;
 }
 
 export type DSRType = "access" | "correction" | "erasure" | "nomination";

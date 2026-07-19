@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 
+import { computeLedgerEntryHash, LEDGER_GENESIS_HASH, verifyChain } from "./hashChain.js";
 import type {
   AppendLedgerEntryInput,
   ComplianceSnapshot,
@@ -11,6 +12,7 @@ import type {
   CreatePurposeInput,
   DateRange,
   DSRRepository,
+  LedgerIntegrityReport,
   LedgerRepository,
   ListConsentArtifactsParams,
   ListDSRRequestsParams,
@@ -53,6 +55,8 @@ export class InMemoryConsentVaultStore implements ConsentRepository, DSRReposito
   private readonly processors = new Map<string, Processor>();
   private readonly ledgerEntries: ConsentLedgerEntry[] = [];
   private sequence = 0;
+  /** Hash of the most recently appended ledger entry, or genesis if none yet. */
+  private lastHash: string = LEDGER_GENESIS_HASH;
 
   constructor(seed: SeedData) {
     this.fiduciary = seed.fiduciary;
@@ -64,6 +68,8 @@ export class InMemoryConsentVaultStore implements ConsentRepository, DSRReposito
     for (const p of seed.processors) this.processors.set(p.id, p);
     for (const entry of seed.ledgerEntries) this.ledgerEntries.push(entry);
     this.sequence = seed.ledgerEntries.length;
+    const lastSeeded = seed.ledgerEntries.at(-1);
+    if (lastSeeded) this.lastHash = lastSeeded.hash;
   }
 
   // ─── ConsentRepository ───────────────────────────────────────────────────
@@ -279,7 +285,8 @@ export class InMemoryConsentVaultStore implements ConsentRepository, DSRReposito
   // ─── LedgerRepository ────────────────────────────────────────────────────
 
   async appendEntry(input: AppendLedgerEntryInput): Promise<ConsentLedgerEntry> {
-    const entry: ConsentLedgerEntry = {
+    const previousHash = this.lastHash;
+    const partial = {
       id: randomUUID(),
       sequence: ++this.sequence,
       entryType: input.entryType,
@@ -288,7 +295,10 @@ export class InMemoryConsentVaultStore implements ConsentRepository, DSRReposito
       detail: input.detail,
       recordedAt: new Date(),
     };
+    const hash = computeLedgerEntryHash(previousHash, partial);
+    const entry: ConsentLedgerEntry = { ...partial, previousHash, hash };
     this.ledgerEntries.push(entry);
+    this.lastHash = hash;
     return entry;
   }
 
@@ -331,5 +341,21 @@ export class InMemoryConsentVaultStore implements ConsentRepository, DSRReposito
       dsrResolved: dsrs.filter((req) => req.status === "resolved" && req.resolvedAt && inRange(req.resolvedAt)).length,
       breachesLogged: [...this.breachEvents.values()].filter((b) => inRange(b.detectedAt)).length,
     };
+  }
+
+  async verifyLedgerIntegrity(dateRange?: DateRange): Promise<LedgerIntegrityReport> {
+    // Sorted by sequence (not recordedAt/timestamp) — true write order is
+    // what the chain follows, and the two aren't guaranteed to agree if
+    // the system clock wasn't monotonic.
+    const ordered = [...this.ledgerEntries].sort((a, b) => a.sequence - b.sequence);
+    const result = verifyChain(ordered);
+
+    const entriesChecked = dateRange
+      ? ordered.filter(
+          (e) => e.recordedAt.getTime() >= dateRange.from.getTime() && e.recordedAt.getTime() <= dateRange.to.getTime(),
+        ).length
+      : ordered.length;
+
+    return { intact: result.intact, entriesChecked, firstBreak: result.firstBreak };
   }
 }
