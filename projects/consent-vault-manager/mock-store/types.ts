@@ -58,7 +58,10 @@ export type LedgerEntryType =
   | "dsr_created"
   | "dsr_resolved"
   | "breach_logged"
-  | "processor_purge_flagged";
+  | "processor_purge_flagged"
+  | "renewal_email_drafted"
+  | "purge_notice_email_drafted"
+  | "purge_followup_event_scheduled";
 
 /**
  * One immutable row per state change. Append-only.
@@ -116,6 +119,8 @@ export interface Processor {
   name: string;
   purposeId: string;
   status: ProcessorStatus;
+  /** Mock contact address — where Phase 3's purge notice email gets addressed. */
+  contactEmail: string;
   createdAt: Date;
   updatedAt: Date;
 }

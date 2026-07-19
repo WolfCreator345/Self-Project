@@ -1,5 +1,6 @@
-import type { InMemoryConsentVaultStore } from "../../mock-store/index.js";
-import { logWouldNotify } from "./notify.js";
+import { addDays, type InMemoryConsentVaultStore } from "../../mock-store/index.js";
+import { logStaged } from "./notify.js";
+import type { PendingCalendarAction, PendingEmailAction, StagePendingAction } from "./pendingActions.js";
 
 export interface WithdrawalCascadeJobData {
   consentId: string;
@@ -10,17 +11,23 @@ export interface WithdrawalCascadeResult {
   flaggedProcessorIds: string[];
 }
 
+const PURGE_FOLLOWUP_DAYS = 7;
+const PURGE_FOLLOWUP_DURATION_MINUTES = 30;
+
 /**
  * Reacts to a "consent revoked" event: looks up the withdrawn artifact's
  * purpose, finds every active downstream Processor tied to that purpose,
  * marks each for purge (store.markProcessorForPurge — which writes the
- * ConsentLedgerEntry) and logs a would-be purge/notify message. Pure
- * function over the store, driven by the withdrawal-cascade queue's worker
- * in index.ts, and fireable manually via scripts/fire-withdrawal-event.ts.
+ * ConsentLedgerEntry), and stages both a purge-notice email and a 7-day
+ * follow-up calendar event for a human to confirm and actually create.
+ * Pure function over the store (plus an injected staging callback), driven
+ * by the withdrawal-cascade queue's worker in index.ts, and fireable
+ * manually via scripts/fire-withdrawal-event.ts.
  */
 export async function runWithdrawalCascade(
   store: InMemoryConsentVaultStore,
   data: WithdrawalCascadeJobData,
+  stagePendingAction: StagePendingAction,
 ): Promise<WithdrawalCascadeResult> {
   const artifact = await store.findConsentArtifactById(data.consentId);
   if (!artifact) throw new Error(`Unknown consent artifact: ${data.consentId}`);
@@ -33,6 +40,7 @@ export async function runWithdrawalCascade(
 
   const principalLabel = principal?.name ?? artifact.principalId;
   const purposeLabel = purpose?.description ?? artifact.purposeId;
+  const withdrawnLabel = artifact.withdrawnAt?.toDateString() ?? "recently";
 
   const flaggedProcessorIds: string[] = [];
   for (const processor of processors) {
@@ -42,10 +50,41 @@ export async function runWithdrawalCascade(
     );
     flaggedProcessorIds.push(processor.id);
 
-    logWouldNotify(
-      `${processor.name}: purge data for ${principalLabel} under purpose "${purposeLabel}" ` +
-        `(consent ${artifact.id} withdrawn)`,
-    );
+    const followUpStart = addDays(new Date(), PURGE_FOLLOWUP_DAYS);
+    const followUpEnd = new Date(followUpStart.getTime() + PURGE_FOLLOWUP_DURATION_MINUTES * 60 * 1000);
+
+    const emailAction: PendingEmailAction = {
+      kind: "purge_notice_email",
+      refId: processor.id,
+      principalId: artifact.principalId,
+      recipientEmail: processor.contactEmail,
+      recipientName: processor.name,
+      subject: `Data purge required — consent withdrawn (${purposeLabel})`,
+      body:
+        `Hello ${processor.name} team,\n\n` +
+        `${principalLabel}'s consent for "${purposeLabel}" was withdrawn on ${withdrawnLabel}. Please purge all data ` +
+        `you hold for this individual under this purpose and confirm completion by ${followUpStart.toDateString()}.\n\n` +
+        `Consent reference: ${artifact.id}\n\n` +
+        `— LexEdu Technologies Data Protection Office`,
+    };
+    await stagePendingAction(emailAction);
+
+    const eventAction: PendingCalendarAction = {
+      kind: "purge_followup_event",
+      refId: processor.id,
+      principalId: artifact.principalId,
+      recipientEmail: processor.contactEmail,
+      recipientName: processor.name,
+      summary: `Confirm data purge: ${processor.name} (${purposeLabel})`,
+      description:
+        `Follow up with ${processor.name} <${processor.contactEmail}> to confirm they purged ${principalLabel}'s ` +
+        `data under purpose "${purposeLabel}" after consent ${artifact.id} was withdrawn on ${withdrawnLabel}.`,
+      startTime: followUpStart.toISOString(),
+      endTime: followUpEnd.toISOString(),
+    };
+    await stagePendingAction(eventAction);
+
+    logStaged(`purge notice + ${PURGE_FOLLOWUP_DAYS}-day follow-up for ${processor.name} <${processor.contactEmail}> — awaiting confirmation`);
   }
 
   return { consentId: artifact.id, flaggedProcessorIds };

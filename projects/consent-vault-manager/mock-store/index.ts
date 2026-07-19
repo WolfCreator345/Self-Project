@@ -2,6 +2,7 @@ export * from "./types.js";
 export * from "./repositories.js";
 export { createSeedData, type SeedData } from "./seed.js";
 export { InMemoryConsentVaultStore } from "./store.js";
+export { addDays } from "./util.js";
 
 import { createSeedData } from "./seed.js";
 import { InMemoryConsentVaultStore } from "./store.js";

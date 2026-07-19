@@ -117,12 +117,12 @@ export function createSeedData(): SeedData {
   ];
 
   const processors: Processor[] = [
-    { id: "processor-1", name: "MailBlast CRM", purposeId: "purpose-1", status: "active", createdAt: d("2023-02-01"), updatedAt: d("2023-02-01") },
-    { id: "processor-2", name: "AdInsight Retargeting", purposeId: "purpose-1", status: "active", createdAt: d("2023-02-01"), updatedAt: d("2023-02-01") },
-    { id: "processor-3", name: "CoreBank Onboarding Suite", purposeId: "purpose-2", status: "active", createdAt: d("2023-02-01"), updatedAt: d("2023-02-01") },
-    { id: "processor-4", name: "SentinelGuard Fraud Detection", purposeId: "purpose-3", status: "active", createdAt: d("2023-02-01"), updatedAt: d("2023-02-01") },
-    { id: "processor-5", name: "PixelMetrics Analytics", purposeId: "purpose-4", status: "active", createdAt: d("2023-02-01"), updatedAt: d("2023-02-01") },
-    { id: "processor-6", name: "ChurnSignal ML Platform", purposeId: "purpose-4", status: "active", createdAt: d("2023-02-01"), updatedAt: d("2023-02-01") },
+    { id: "processor-1", name: "MailBlast CRM", purposeId: "purpose-1", status: "active", contactEmail: "privacy@mailblastcrm.example", createdAt: d("2023-02-01"), updatedAt: d("2023-02-01") },
+    { id: "processor-2", name: "AdInsight Retargeting", purposeId: "purpose-1", status: "active", contactEmail: "dpo@adinsight.example", createdAt: d("2023-02-01"), updatedAt: d("2023-02-01") },
+    { id: "processor-3", name: "CoreBank Onboarding Suite", purposeId: "purpose-2", status: "active", contactEmail: "compliance@corebanksuite.example", createdAt: d("2023-02-01"), updatedAt: d("2023-02-01") },
+    { id: "processor-4", name: "SentinelGuard Fraud Detection", purposeId: "purpose-3", status: "active", contactEmail: "privacy@sentinelguard.example", createdAt: d("2023-02-01"), updatedAt: d("2023-02-01") },
+    { id: "processor-5", name: "PixelMetrics Analytics", purposeId: "purpose-4", status: "active", contactEmail: "dpo@pixelmetrics.example", createdAt: d("2023-02-01"), updatedAt: d("2023-02-01") },
+    { id: "processor-6", name: "ChurnSignal ML Platform", purposeId: "purpose-4", status: "active", contactEmail: "privacy@churnsignal.example", createdAt: d("2023-02-01"), updatedAt: d("2023-02-01") },
   ];
 
   const dsrRequests: DSRRequest[] = [

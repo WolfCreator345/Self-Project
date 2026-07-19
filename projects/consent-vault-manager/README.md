@@ -9,7 +9,7 @@ This project lives at `projects/consent-vault-manager/` in this repo,
 alongside the unrelated LexEdu app (`backend/`, `frontend/`) — the two are
 independent projects sharing a repo, not a monorepo (yet).
 
-## Status: Phase 2 — BullMQ job workers against the mock store
+## Status: Phase 3 — real Gmail/Calendar notifications, human-confirmed
 
 Done — Phase 0 (mock data layer):
 - `mock-store/types.ts` — domain model (`DataPrincipal`, `DataFiduciary`,
@@ -58,17 +58,16 @@ Done — Phase 2 (job workers):
   (`EXPIRY_SWEEP_INTERVAL_MS`, default 2 minutes for the demo — set the env
   var to `86400000` for daily) and starts two `Worker`s: one processes
   `expiry-sweep` jobs, the other processes `withdrawal-cascade` jobs.
-- `jobs/src/expirySweep.ts` — `runExpirySweep(store)`: finds `granted`
-  `ConsentArtifact`s whose `expiresAt` has passed, flips each to `expired`
-  via `store.markExpired` (which itself writes the `ConsentLedgerEntry` —
-  see Phase 0's design), and logs `[would email] <principal>: consent for
-  purpose "..." expired ... — renewal requested`.
+- `jobs/src/expirySweep.ts` — `runExpirySweep(store, stagePendingAction)`:
+  finds `granted` `ConsentArtifact`s whose `expiresAt` has passed, flips
+  each to `expired` via `store.markExpired` (which itself writes the
+  `ConsentLedgerEntry` — see Phase 0's design), and drafts a renewal email.
 - `jobs/src/withdrawalCascade.ts` — `runWithdrawalCascade(store, {
-  consentId })`: looks up the withdrawn artifact's purpose, finds every
-  `active` `Processor` tied to that purpose, marks each `purge_pending` via
-  `store.markProcessorForPurge` (writes a `processor_purge_flagged` ledger
-  entry per processor), and logs `[would notify] <processor>: purge data for
-  <principal> under purpose "..." ...`.
+  consentId }, stagePendingAction)`: looks up the withdrawn artifact's
+  purpose, finds every `active` `Processor` tied to that purpose, marks each
+  `purge_pending` via `store.markProcessorForPurge` (writes a
+  `processor_purge_flagged` ledger entry per processor), and drafts both a
+  purge-notice email and a 7-day follow-up calendar event per processor.
 - `jobs/scripts/fire-withdrawal-event.ts` — `npm run fire:withdrawal --
   <consentId>` enqueues a mock "consent revoked" event onto the
   `withdrawal-cascade` queue over Redis. It only touches Redis, not the
@@ -76,19 +75,53 @@ Done — Phase 2 (job workers):
   worker process, so this only works while that's running.
 - Both job functions are pure `(store, ...) => Promise<result>` functions,
   unit-tested with `node:test` and zero Redis dependency
-  (`jobs/tests/*.test.ts`). `jobs/scripts/smoke-test.ts` covers the BullMQ
-  wiring itself: spawns the real worker process, drives it entirely through
-  Redis (one-off expiry-sweep tick + a fired withdrawal event), and asserts
-  on the worker's own log output — same shape of check as Phase 1's MCP
-  smoke test, adapted for a queue instead of a stdio client.
-- No Gmail/Calendar calls yet — every notification is a `console.log` stand-in
-  behind `jobs/src/notify.ts`'s `logWouldEmail`/`logWouldNotify`. Phase 3
-  swaps what's inside those two functions for real MCP calls; nothing about
-  the job logic that calls them changes.
+  (`jobs/tests/*.test.ts`).
 
-Not built yet (later phases per the spec): real Gmail/Calendar notifications
-(Phase 3), NestJS + Postgres backend (Phase 4), ledger hash-chaining
-(Phase 5), React dashboard (Phase 6), breach notice drafting (Phase 7).
+Done — Phase 3 (real Gmail/Calendar notifications, human-confirmed):
+- **Why jobs don't call Gmail/Calendar MCP directly.** Those connectors are
+  only reachable from an interactive Claude session (they're tied to the
+  account's live MCP connections) — a headless `jobs/` Node process has no
+  credentials to call them with, and shouldn't be handed any. So instead of
+  sending, a job **drafts** the content and **stages** it; only a human (via
+  Claude Code, which does have live Gmail/Calendar access) can actually
+  create the real artifact and confirm it happened.
+- `jobs/src/pendingActions.ts` — `PendingEmailAction` / `PendingCalendarAction`
+  types for drafted-but-unconfirmed content, plus `ConfirmedNotificationJobData`
+  for the confirmation round trip.
+- Both `runExpirySweep` and `runWithdrawalCascade` now take a
+  `stagePendingAction` callback (real implementation in `index.ts` enqueues
+  onto the `pending-notifications` queue; unit tests inject an in-memory
+  collector instead — no interface change needed, just an added parameter).
+- `jobs/scripts/list-pending.ts` (`npm run list-pending`) — read-only,
+  lists every staged draft waiting on confirmation, straight from Redis.
+- `jobs/scripts/confirm-notification.ts` (`npm run confirm -- <pendingJobId>
+  --gmail-draft-id=<id>` or `--calendar-event-id=<id>`) — the manual
+  confirmation gate. Run this **after** the real Gmail draft / Calendar
+  event has actually been created; it removes the item from the pending
+  inbox and enqueues onto `notification-confirmed`, which the **same**
+  long-running `npm start` worker process picks up (so it writes to the
+  same store instance the original job mutated) via
+  `jobs/src/confirmNotification.ts`'s `recordConfirmedNotification`, adding
+  a `renewal_email_drafted` / `purge_notice_email_drafted` /
+  `purge_followup_event_scheduled` ledger entry with the real draft/event id,
+  recipient, and message type.
+- Gmail's MCP connector here only exposes `create_draft` — there's no send
+  tool. That's actually a good fit: the "real" action available is creating
+  a draft that sits in Drafts until a human sends it, which is an even
+  stronger confirmation gate than the one this system adds on top. Calendar's
+  `create_event` does create a live event immediately, so the pending/confirm
+  gate is the only thing standing between a draft and a real calendar entry.
+- `jobs/scripts/smoke-test.ts` covers the whole loop against real Redis:
+  spawns the worker, triggers an expiry-sweep tick and a withdrawal cascade,
+  confirms every staged item with **fake** draft/event ids (it doesn't touch
+  real Gmail/Calendar), and asserts on the resulting `[confirmed]` log lines.
+  A full live run — real Gmail draft + real Calendar event, confirmed with
+  their real ids — was also verified by hand against the account this
+  session is running as.
+
+Not built yet (later phases per the spec): NestJS + Postgres backend
+(Phase 4), ledger hash-chaining (Phase 5), React dashboard (Phase 6), breach
+notice drafting (Phase 7).
 
 ### Design decisions made without a spec answer
 
@@ -156,7 +189,7 @@ redis-server --daemonize yes          # or: docker run -d -p 6379:6379 redis
 Then, from `jobs/`:
 
 ```bash
-npm run smoke-test   # spawns the worker, drives it over real Redis, asserts on its logs
+npm run smoke-test   # spawns the worker, drives it over real Redis, asserts on its logs (fake ids only)
 
 # or run it live in two terminals:
 npm start                              # terminal 1 — long-running worker
@@ -167,7 +200,23 @@ npm run fire:withdrawal -- consent-4   # terminal 2 — fires a mock withdrawal 
 purposes (`purpose-4`/analytics, `purpose-1`/marketing) have active
 processors, so either makes a good manual demo target. The expiry sweep
 needs no manual trigger — `consent-12` is seeded deliberately stale, so the
-very first sweep tick (or `smoke-test`'s one-off trigger) expires it for you.
+very first sweep tick expires it for you.
+
+With the worker running, drafted notifications show up on the
+`pending-notifications` queue instead of being sent — review and confirm
+them from a second terminal:
+
+```bash
+npm run list-pending                                          # see every drafted email/event awaiting confirmation
+# ... create the real Gmail draft / Calendar event via Claude Code ...
+npm run confirm -- <pendingJobId> --gmail-draft-id=<id>       # for a drafted email
+npm run confirm -- <pendingJobId> --calendar-event-id=<id>    # for a drafted calendar event
+```
+
+`confirm-notification.ts` has no Gmail/Calendar credentials itself — it only
+records that a human (via Claude Code's live MCP tool access) already
+created the real draft/event. Skipping straight to `confirm` without
+actually creating anything just puts a fabricated id on the ledger, so don't.
 
 To register the MCP server with Claude Code from the repo root:
 
@@ -183,8 +232,7 @@ it's connected.
 
 ## Next step
 
-Phase 3: swap the `console.log` stand-ins in `jobs/src/notify.ts` for real
-Gmail MCP / Calendar MCP calls — the underlying consent data stays the mock
-store throughout. This is the point where the full orchestration loop (job →
-vault store → Gmail/Calendar tool → ledger write) is real end-to-end except
-for persistence.
+Phase 4: build the real NestJS + Postgres backend, implementing the exact
+same `ConsentRepository` / `DSRRepository` / `LedgerRepository` interfaces
+from Phase 0 — nothing in `mcp-server/` or `jobs/` should need to change,
+only the implementation swapped in for `createSeededStore()`.

@@ -1,13 +1,15 @@
 /**
- * Phase 2 stand-ins for real notifications. Phase 3 swaps these for actual
- * Gmail MCP / Calendar MCP calls without changing the job logic that calls
- * them — only what happens inside these two functions changes.
+ * Phase 3: jobs draft real content and stage it on the pending-notifications
+ * queue rather than sending directly — a headless worker has no Gmail/
+ * Calendar credentials. This is just a progress log for what got staged;
+ * the actual Gmail draft / Calendar event only exists once a human confirms
+ * (see confirmNotification.ts and scripts/confirm-notification.ts).
  */
 
-export function logWouldEmail(message: string): void {
-  console.log(`[would email] ${message}`);
+export function logStaged(message: string): void {
+  console.log(`[staged] ${message}`);
 }
 
-export function logWouldNotify(message: string): void {
-  console.log(`[would notify] ${message}`);
+export function logConfirmed(message: string): void {
+  console.log(`[confirmed] ${message}`);
 }
