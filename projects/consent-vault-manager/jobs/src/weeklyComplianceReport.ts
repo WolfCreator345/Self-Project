@@ -17,6 +17,17 @@ function isoDate(date: Date): string {
   return date.toISOString().slice(0, 10);
 }
 
+/**
+ * Filesystem-safe timestamp for the archived filename. Uses the full
+ * generation timestamp (not just the date) so repeated runs on the same
+ * calendar day — routine at demo cadence — never silently overwrite an
+ * earlier archived report; the ledger's reportLocation must keep pointing
+ * at the exact file that existed when that entry was written.
+ */
+function timestampForFilename(date: Date): string {
+  return date.toISOString().replace(/[:.]/g, "-");
+}
+
 function buildDocDefinition(
   dateRange: { from: Date; to: Date },
   snapshot: Awaited<ReturnType<LedgerRepository["getComplianceSnapshot"]>>,
@@ -57,10 +68,12 @@ function buildDocDefinition(
  * get_compliance_snapshot returns over MCP) and renders it as a PDF via
  * pdfmake — no headless-browser dependency, per the Phase 7 brief. Stages a
  * single weekly_report pending action carrying the PDF inline (base64) for
- * a human to actually archive to Drive and email, then confirm with both
- * ids together (see confirmNotification.ts). Pure function over a
- * LedgerRepository (plus injected staging callback), unit-testable against
- * mock-store without Redis/Postgres.
+ * a human to actually email; confirming it (see confirmNotification.ts)
+ * both records the real Gmail draft id and archives the PDF via the
+ * injected ReportArchiver (local disk for now — see reportArchiver.ts for
+ * why Drive isn't used). Pure function over a LedgerRepository (plus
+ * injected staging callback), unit-testable against mock-store without
+ * Redis/Postgres.
  */
 export async function runWeeklyComplianceReport(
   ledger: LedgerRepository,
@@ -79,7 +92,7 @@ export async function runWeeklyComplianceReport(
   const printer = createPdfPrinter();
   const pdfBuffer = await renderPdfToBuffer(printer, buildDocDefinition(dateRange, snapshot));
 
-  const pdfFilename = `compliance-report-${isoDate(from)}-to-${isoDate(to)}.pdf`;
+  const pdfFilename = `compliance-report-${timestampForFilename(to)}.pdf`;
   const action: PendingReportAction = {
     kind: "weekly_report",
     refId: `weekly-report-${isoDate(from)}-${isoDate(to)}`,
@@ -93,7 +106,7 @@ export async function runWeeklyComplianceReport(
       `Consents expired: ${snapshot.consentsExpired}\n` +
       `DSR open: ${snapshot.dsrOpen}, overdue: ${snapshot.dsrOverdue}, resolved: ${snapshot.dsrResolved}\n` +
       `Breaches logged: ${snapshot.breachesLogged}\n\n` +
-      `Full report archived to Drive as "${pdfFilename}" — link the uploaded file when creating the real draft.`,
+      `Full report will be archived locally as "${pdfFilename}" once this is confirmed.`,
     pdfBase64: pdfBuffer.toString("base64"),
     pdfFilename,
   };

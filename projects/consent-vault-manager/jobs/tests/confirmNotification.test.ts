@@ -4,6 +4,18 @@ import { describe, it } from "node:test";
 import { createSeededStore } from "../../mock-store/index.js";
 import { recordConfirmedNotification } from "../src/confirmNotification.js";
 import type { PendingCalendarAction, PendingEmailAction, PendingReportAction } from "../src/pendingActions.js";
+import type { ReportArchiver } from "../src/reportArchiver.js";
+
+function fakeArchiver() {
+  const calls: { pdf: Buffer; filename: string }[] = [];
+  const archiver: ReportArchiver = {
+    async store(pdf, filename) {
+      calls.push({ pdf, filename });
+      return `/fake/reports/${filename}`;
+    },
+  };
+  return { archiver, calls };
+}
 
 describe("recordConfirmedNotification", () => {
   it("writes a renewal_email_drafted ledger entry with the real gmail draft id", async () => {
@@ -152,8 +164,40 @@ describe("recordConfirmedNotification", () => {
     assert.equal(detail.threshold, "T-7d");
   });
 
-  it("writes a weekly_report_sent ledger entry with both gmailDraftId and driveFileId", async () => {
+  it("writes a weekly_report_sent ledger entry and archives the PDF via the injected ReportArchiver", async () => {
     const store = createSeededStore();
+    const { archiver, calls } = fakeArchiver();
+
+    const pending: PendingReportAction = {
+      kind: "weekly_report",
+      refId: "weekly-report-2026-07-13-2026-07-20",
+      recipientEmail: "dpo@example.com",
+      recipientName: "Data Protection Office",
+      subject: "Weekly compliance report",
+      body: "...",
+      pdfBase64: "ZmFrZQ==", // base64 of "fake"
+      pdfFilename: "report.pdf",
+    };
+
+    const entry = await recordConfirmedNotification(
+      store,
+      { pending, gmailDraftId: "fake-report-draft-1", confirmedAt: new Date().toISOString() },
+      archiver,
+    );
+
+    assert.equal(entry.entryType, "weekly_report_sent");
+    const detail = entry.detail as { gmailDraftId: string; reportLocation: string };
+    assert.equal(detail.gmailDraftId, "fake-report-draft-1");
+    assert.equal(detail.reportLocation, "/fake/reports/report.pdf");
+
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0]!.filename, "report.pdf");
+    assert.equal(calls[0]!.pdf.toString("utf8"), "fake");
+  });
+
+  it("rejects a weekly_report confirmation missing gmailDraftId", async () => {
+    const store = createSeededStore();
+    const { archiver, calls } = fakeArchiver();
 
     const pending: PendingReportAction = {
       kind: "weekly_report",
@@ -166,20 +210,14 @@ describe("recordConfirmedNotification", () => {
       pdfFilename: "report.pdf",
     };
 
-    const entry = await recordConfirmedNotification(store, {
-      pending,
-      gmailDraftId: "fake-report-draft-1",
-      driveFileId: "fake-drive-file-1",
-      confirmedAt: new Date().toISOString(),
-    });
-
-    assert.equal(entry.entryType, "weekly_report_sent");
-    const detail = entry.detail as { gmailDraftId: string; driveFileId: string };
-    assert.equal(detail.gmailDraftId, "fake-report-draft-1");
-    assert.equal(detail.driveFileId, "fake-drive-file-1");
+    await assert.rejects(() =>
+      recordConfirmedNotification(store, { pending, confirmedAt: new Date().toISOString() }, archiver),
+    );
+    // Should fail before archiving — never PDF-write for a confirmation that isn't valid yet.
+    assert.equal(calls.length, 0);
   });
 
-  it("rejects a weekly_report confirmation missing driveFileId", async () => {
+  it("rejects a weekly_report confirmation without a ReportArchiver", async () => {
     const store = createSeededStore();
 
     const pending: PendingReportAction = {

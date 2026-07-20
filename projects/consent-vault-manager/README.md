@@ -432,41 +432,52 @@ Done — Phase 7 (breach notice drafting, DSR SLA escalation, weekly compliance 
   kind) — small enough for a BullMQ job payload, and avoids needing a
   shared filesystem between the job process and whatever process later
   confirms it. Gmail's `create_draft` tool doesn't support attachments (its
-  own tool description says so), so the design is: archive the PDF to
-  Google Drive first, then draft an email referencing that Drive link — the
-  `weekly_report` kind requires **both** `--gmail-draft-id` and
-  `--drive-file-id` together in `confirm-notification.ts` (enforced in
-  `recordConfirmedNotification`, and in the CLI's usage text), writing one
-  `weekly_report_sent` ledger entry with both ids.
+  own tool description says so), so the email is a text summary only,
+  never carrying the PDF itself.
+- **Archival: local disk, not Google Drive.** The original design archived
+  the PDF to Google Drive alongside the Gmail draft. Drive's `create_file`
+  turned out to have a live regression — it fails with "User cannot add
+  children to the specified folder" whenever `parentId` is given, and
+  there's no confirmed move/rename operation on that connector to relocate
+  a root-level file afterward — so archival was switched to local disk
+  instead of working around a connector that doesn't support what's
+  needed. Archival now happens automatically inside
+  `recordConfirmedNotification` at confirm time, behind a small
+  `ReportArchiver` interface (`store(pdf, filename): Promise<string>`) —
+  local disk needs no live MCP session, unlike Gmail/Calendar/Drive, so
+  unlike those it doesn't need a human-supplied id to confirm; the
+  `weekly_report` kind now only requires `--gmail-draft-id`.
+  `LocalFileReportArchiver` writes to `jobs/reports/` (git-ignored,
+  resolved relative to the package so it's correct regardless of `npm
+  start`'s cwd), and the ledger entry's `detail.reportLocation` records the
+  real path written. Swapping in a working Drive-backed `ReportArchiver`
+  once the connector issue is fixed upstream is a one-line change at its
+  construction site in `index.ts` — nothing else depends on the storage
+  mechanism. The PDF's filename changed from a date-range to a full
+  generation timestamp (`compliance-report-<ISO-timestamp>.pdf`) so
+  same-day demo-cadence runs can't silently overwrite an earlier archived
+  file that a ledger entry still points at.
 - **`list-pending.ts`** decodes a `weekly_report` item's base64 PDF and
-  writes it to a local temp file (printing the path) instead of dumping raw
-  base64 to the terminal, so a human (or Claude Code, doing the live
-  confirmation) has an actual file to upload to Drive.
-- **Verified live, mostly.** Booted the real `apps/api` + `jobs` worker
-  against real Postgres/Redis. `mcp-server`'s smoke test now covers
+  writes it to a local temp file (printing the path) so a human can review
+  the actual report content before drafting the email — no longer an
+  "upload this somewhere" step, since archival is automatic now.
+- **Verified live.** Booted the real `apps/api` + `jobs` worker against
+  real Postgres/Redis. `mcp-server`'s smoke test now covers
   `report_breach_event` at both a logged-only severity and a
-  notice-triggering severity (8 tools total). The breach-notice and DSR
-  SLA-escalation automations were verified fully end-to-end with **real**
-  artifacts: a real Gmail draft + real Calendar event for the DPB notice,
-  and two real Gmail drafts for the T-7d/T-2d SLA reminders, each confirmed
-  via `confirm-notification.ts` and written to the ledger — confirmed by
-  re-querying `verify_ledger_integrity` afterward (`intact: true`, 31
-  entries, full walk). This session's sandbox also had Postgres and Redis
-  restart mid-verification (twice); Postgres data survived to disk as
-  expected and the same real Gmail/Calendar ids were re-confirmed against
-  freshly-restaged pending items with no loss of correctness — an
-  unplanned but useful proof that Redis is correctly treated as disposable
-  working state, not a source of truth. The weekly report's PDF generation,
-  staging, and dual-id confirm validation were all verified (including a
-  byte-for-byte valid rendered PDF, inspected directly), but the live
-  Google Drive upload itself could not be completed in this session — the
-  Drive MCP connector's tool-permission handshake failed identically
-  (`AbortError: Tool permission stream closed before response received`)
-  on every attempt, including a trivial one-line text file after a full MCP
-  reconnect, while Gmail and Calendar calls succeeded normally throughout —
-  an external connector issue in this environment, not a defect in the
-  confirm flow itself (which is otherwise identical to the two automations
-  that did confirm live).
+  notice-triggering severity (8 tools total). All three automations were
+  verified fully end-to-end with **real** artifacts: a real Gmail draft +
+  real Calendar event for the DPB breach notice, two real Gmail drafts for
+  the T-7d/T-2d SLA reminders, and a real Gmail draft for the weekly report
+  — confirming the last one produced a real file on disk at
+  `jobs/reports/compliance-report-<timestamp>.pdf`, with its exact path
+  and byte count verified by querying the resulting ledger entry directly.
+  Every confirmation was written to the ledger, re-checked afterward via
+  `verify_ledger_integrity` (`intact: true`, full walk). This session's
+  sandbox also had Postgres and Redis restart mid-verification (twice);
+  Postgres data survived to disk as expected and the same real Gmail/
+  Calendar ids were re-confirmed against freshly-restaged pending items
+  with no loss of correctness — an unplanned but useful proof that Redis
+  is correctly treated as disposable working state, not a source of truth.
 
 ### Design decisions made without a spec answer
 
@@ -708,19 +719,20 @@ them from a second terminal:
 ```bash
 npm run list-pending                                          # see every drafted email/event/report awaiting confirmation
 # ... create the real Gmail draft / Calendar event via Claude Code ...
-npm run confirm -- <pendingJobId> --gmail-draft-id=<id>       # for a drafted email
+npm run confirm -- <pendingJobId> --gmail-draft-id=<id>       # for a drafted email, including weekly_report
 npm run confirm -- <pendingJobId> --calendar-event-id=<id>    # for a drafted calendar event
-npm run confirm -- <pendingJobId> --drive-file-id=<id>        # weekly_report needs this + --gmail-draft-id together
 ```
 
-`confirm-notification.ts` has no Gmail/Calendar/Drive credentials itself —
-it only records that a human (via Claude Code's live MCP tool access)
-already created the real draft/event/file. Skipping straight to `confirm`
-without actually creating anything just puts a fabricated id on the ledger,
-so don't. For `weekly_report`, `list-pending` decodes the staged PDF to a
-local temp file and prints the path — upload that file to Drive, note the
-returned file id, then draft a Gmail email referencing it before confirming
-with both `--gmail-draft-id` and `--drive-file-id`.
+`confirm-notification.ts` has no Gmail/Calendar credentials itself — it
+only records that a human (via Claude Code's live MCP tool access) already
+created the real draft/event. Skipping straight to `confirm` without
+actually creating anything just puts a fabricated id on the ledger, so
+don't. For `weekly_report`, `list-pending` decodes the staged PDF to a
+local temp file and prints the path, purely so you can look at the report
+before drafting the email — confirming with `--gmail-draft-id` archives
+the PDF to `jobs/reports/` automatically (local disk in place of Google
+Drive for now — see the Phase 7 changelog above for why), no separate
+upload step needed.
 
 ### 5. apps/dashboard — React + Vite, needs `apps/api` running
 
@@ -739,8 +751,8 @@ the `ADMIN_USERNAME`/password whose bcrypt hash you put in `apps/api/.env`.
 
 ## Next step
 
-All phases from the original spec are now built. Remaining open item:
-complete a live end-to-end confirmation of the weekly compliance report's
-Google Drive upload leg (PDF generation, staging, and dual-id confirm
-validation are all verified — only the live Drive upload itself hit a
-transient connector issue in this session; see the Phase 7 changelog above).
+All phases from the original spec are now built and verified live end to
+end, including the weekly compliance report (archived to local disk in
+place of Google Drive — see the Phase 7 changelog above for the connector
+regression that motivated that, and swap in a real `ReportArchiver` once
+it's fixed upstream).

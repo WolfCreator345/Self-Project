@@ -17,7 +17,10 @@ import { PENDING_NOTIFICATIONS_QUEUE } from "../src/queues.js";
  * weekly_report items carry their PDF inline as base64 (see
  * pendingActions.ts's PendingReportAction) — printing that raw would be an
  * unreadable wall of text, so it's decoded and written to a local temp file
- * instead, with the path printed for review/upload.
+ * instead, with the path printed for review before confirming. Archival to
+ * reports/ happens automatically at confirm time (see
+ * localFileReportArchiver.ts) — this temp copy is just for a human to look
+ * at before drafting the email, not something they need to move anywhere.
  */
 async function main() {
   const queue = new Queue<PendingAction>(PENDING_NOTIFICATIONS_QUEUE, { connection: REDIS_CONNECTION });
@@ -42,9 +45,8 @@ async function main() {
     }
     console.log(
       "To confirm one after actually creating the real artifact:\n" +
-        "  npm run confirm -- <pendingJobId> --gmail-draft-id=<id>\n" +
-        "  npm run confirm -- <pendingJobId> --calendar-event-id=<id>\n" +
-        "  npm run confirm -- <pendingJobId> --drive-file-id=<id>   (weekly_report needs this + --gmail-draft-id together)",
+        "  npm run confirm -- <pendingJobId> --gmail-draft-id=<id>       (renewal_email, purge_notice_email, breach_notice_email, dsr_escalation_email, weekly_report)\n" +
+        "  npm run confirm -- <pendingJobId> --calendar-event-id=<id>    (purge_followup_event, breach_notice_deadline)",
     );
   }
 

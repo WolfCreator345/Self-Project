@@ -70,7 +70,14 @@ export interface ConfirmedNotificationJobData {
   pending: PendingAction;
   gmailDraftId?: string;
   calendarEventId?: string;
-  /** Google Drive file id — weekly_report only, alongside gmailDraftId (both artifacts confirmed together). */
+  /**
+   * Google Drive file id. Currently unused — weekly_report archival is
+   * local-only until the Drive connector's create_file regression is fixed
+   * (see reportArchiver.ts) — but kept on the type and accepted by
+   * scripts/confirm-notification.ts's --drive-file-id flag so a future
+   * Drive-backed ReportArchiver can start consuming it without a payload
+   * shape change.
+   */
   driveFileId?: string;
   confirmedAt: string;
 }

@@ -1,3 +1,6 @@
+import { fileURLToPath } from "node:url";
+import path from "node:path";
+
 import { Queue, Worker, type Job } from "bullmq";
 
 import { createRealRepositories } from "../../apps/api/src/consent-vault/create-real-repositories.js";
@@ -11,6 +14,7 @@ import {
 import { recordConfirmedNotification } from "./confirmNotification.js";
 import { runDsrSlaEscalation, type DsrSlaThreshold } from "./dsrSlaEscalation.js";
 import { runExpirySweep } from "./expirySweep.js";
+import { LocalFileReportArchiver } from "./localFileReportArchiver.js";
 import { logConfirmed } from "./notify.js";
 import type { ConfirmedNotificationJobData, PendingAction } from "./pendingActions.js";
 import {
@@ -40,6 +44,25 @@ const pendingQueue = new Queue<PendingAction>(PENDING_NOTIFICATIONS_QUEUE, { con
 async function stagePendingAction(action: PendingAction) {
   await pendingQueue.add(action.kind, action);
 }
+
+/**
+ * Where weekly compliance report PDFs get archived — a git-ignored
+ * directory alongside this package, since these are generated artifacts,
+ * not source. Resolved relative to this file (not process.cwd()) so it's
+ * correct regardless of which directory `npm start` was invoked from. This
+ * lives here rather than in config.ts because config.ts is also
+ * value-imported by apps/api (for REDIS_CONNECTION), whose CommonJS-target
+ * tsconfig can't compile `import.meta` — index.ts is only ever run via
+ * tsx, never compiled by apps/api's tsc, so it's safe here.
+ *
+ * Swapping to a real Drive-backed archiver once the connector's create_file
+ * regression is fixed upstream is a one-line change to this construction —
+ * nothing else in this file, or in confirmNotification.ts, knows or cares
+ * which ReportArchiver implementation this is.
+ */
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const REPORTS_DIR = process.env.REPORTS_DIR ?? path.resolve(__dirname, "../reports");
+const reportArchiver = new LocalFileReportArchiver(REPORTS_DIR);
 
 /**
  * Dedup check for DSR SLA escalations (see dsrSlaEscalation.ts's header
@@ -166,7 +189,7 @@ const breachNoticeDraftWorker = new Worker<BreachNoticeDraftJobData>(
 const notificationConfirmedWorker = new Worker<ConfirmedNotificationJobData>(
   NOTIFICATION_CONFIRMED_QUEUE,
   async (job: Job<ConfirmedNotificationJobData>) => {
-    const entry = await recordConfirmedNotification(ledger, job.data);
+    const entry = await recordConfirmedNotification(ledger, job.data, reportArchiver);
     logConfirmed(
       `${job.data.pending.kind} for ${job.data.pending.refId} -> ledger entry ${entry.id} (seq ${entry.sequence})`,
     );

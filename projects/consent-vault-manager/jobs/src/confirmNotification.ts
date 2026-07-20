@@ -1,5 +1,6 @@
 import type { ConsentLedgerEntry, LedgerEntryType, LedgerRepository } from "../../mock-store/index.js";
 import type { ConfirmedNotificationJobData, PendingActionKind } from "./pendingActions.js";
+import type { ReportArchiver } from "./reportArchiver.js";
 
 function ledgerEntryTypeFor(kind: PendingActionKind): LedgerEntryType {
   switch (kind) {
@@ -29,15 +30,29 @@ function ledgerEntryTypeFor(kind: PendingActionKind): LedgerEntryType {
  * function over a LedgerRepository — mock-store's InMemoryConsentVaultStore
  * satisfies this for unit tests, PrismaLedgerRepository satisfies it for
  * the real notification-confirmed queue worker in index.ts.
+ *
+ * `reportArchiver` is only used for the `weekly_report` kind: archiving a
+ * PDF is plain local I/O with no live MCP session required (unlike
+ * Gmail/Calendar/Drive), so it happens right here at confirm time rather
+ * than needing a human-supplied id the way `gmailDraftId`/`calendarEventId`
+ * do. See reportArchiver.ts for why this is behind an interface.
  */
 export async function recordConfirmedNotification(
   store: LedgerRepository,
   data: ConfirmedNotificationJobData,
+  reportArchiver?: ReportArchiver,
 ): Promise<ConsentLedgerEntry> {
-  const { pending, gmailDraftId, calendarEventId, driveFileId, confirmedAt } = data;
+  const { pending, gmailDraftId, calendarEventId, confirmedAt } = data;
 
-  if (pending.kind === "weekly_report" && (!gmailDraftId || !driveFileId)) {
-    throw new Error("weekly_report confirmation requires both gmailDraftId and driveFileId — the report is archived and emailed together.");
+  let reportLocation: string | undefined;
+  if (pending.kind === "weekly_report") {
+    if (!gmailDraftId) {
+      throw new Error("weekly_report confirmation requires gmailDraftId — the drafted email must actually exist before confirming.");
+    }
+    if (!reportArchiver) {
+      throw new Error("weekly_report confirmation requires a ReportArchiver to archive the PDF.");
+    }
+    reportLocation = await reportArchiver.store(Buffer.from(pending.pdfBase64, "base64"), pending.pdfFilename);
   }
 
   return store.appendEntry({
@@ -50,7 +65,7 @@ export async function recordConfirmedNotification(
       recipientName: pending.recipientName,
       ...(gmailDraftId ? { gmailDraftId } : {}),
       ...(calendarEventId ? { calendarEventId } : {}),
-      ...(driveFileId ? { driveFileId } : {}),
+      ...(reportLocation ? { reportLocation } : {}),
       ...(pending.kind === "dsr_escalation_email" && pending.threshold ? { threshold: pending.threshold } : {}),
       confirmedAt,
     },
