@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 
 import { apiGet } from "../lib/api";
-import type { ComplianceSnapshot, LedgerIntegrityReport, WireBreachEvent } from "../lib/types";
+import type { ComplianceSnapshot, LedgerIntegrityReport, PendingBreachNotice, WireBreachEvent } from "../lib/types";
 
 const POLL_INTERVAL_MS = Number(import.meta.env.VITE_POLL_INTERVAL_MS ?? 30_000);
 
@@ -21,6 +21,12 @@ export function ComplianceView() {
   const breachQuery = useQuery({
     queryKey: ["compliance", "breach-events"],
     queryFn: () => apiGet<WireBreachEvent[]>("/compliance/breach-events"),
+    refetchInterval: POLL_INTERVAL_MS,
+  });
+
+  const pendingBreachNoticesQuery = useQuery({
+    queryKey: ["compliance", "pending-breach-notices"],
+    queryFn: () => apiGet<PendingBreachNotice[]>("/compliance/pending-breach-notices"),
     refetchInterval: POLL_INTERVAL_MS,
   });
 
@@ -66,6 +72,36 @@ export function ComplianceView() {
           <Stat label="DSR overdue" value={snapshotQuery.data.dsrOverdue} />
           <Stat label="DSR resolved" value={snapshotQuery.data.dsrResolved} />
         </div>
+      )}
+
+      <h3>Pending breach notices (awaiting manual review &amp; send)</h3>
+      {pendingBreachNoticesQuery.isLoading && <p>Loading…</p>}
+      {pendingBreachNoticesQuery.data && pendingBreachNoticesQuery.data.length === 0 && (
+        <p style={{ color: "#555" }}>Nothing drafted and awaiting confirmation right now.</p>
+      )}
+      {pendingBreachNoticesQuery.data && pendingBreachNoticesQuery.data.length > 0 && (
+        <table border={1} cellPadding={6} style={{ borderCollapse: "collapse", width: "100%", marginBottom: 24 }}>
+          <thead>
+            <tr>
+              <th>Kind</th>
+              <th>Breach</th>
+              <th>To</th>
+              <th>Subject / summary</th>
+              <th>Staged at</th>
+            </tr>
+          </thead>
+          <tbody>
+            {pendingBreachNoticesQuery.data.map((notice) => (
+              <tr key={notice.pendingJobId}>
+                <td>{notice.kind === "breach_notice_email" ? "DPB notice email" : "DPB deadline event"}</td>
+                <td>{notice.breachEventId}</td>
+                <td>{notice.detail.recipientEmail}</td>
+                <td>{notice.detail.subject ?? notice.detail.summary}</td>
+                <td>{new Date(notice.stagedAt).toLocaleString()}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       )}
 
       <h3>Breach log</h3>

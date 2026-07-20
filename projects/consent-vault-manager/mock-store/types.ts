@@ -61,7 +61,11 @@ export type LedgerEntryType =
   | "processor_purge_flagged"
   | "renewal_email_drafted"
   | "purge_notice_email_drafted"
-  | "purge_followup_event_scheduled";
+  | "purge_followup_event_scheduled"
+  | "breach_notice_drafted"
+  | "breach_notice_deadline_scheduled"
+  | "dsr_escalation_sent"
+  | "weekly_report_sent";
 
 /**
  * One immutable row per state change. Append-only.
@@ -105,6 +109,16 @@ export interface BreachEvent {
   detectedAt: Date;
   dpbNotifyDueAt: Date;
   severity: BreachSeverity;
+  /**
+   * Purposes (categories of processing) affected by this breach — added in
+   * Phase 7 for breach notice drafting, which needs to know which
+   * principals to describe as affected. Rather than storing a redundant
+   * principal list, "affected principals" is derived at draft time by
+   * querying granted ConsentArtifacts for these purposes (mirrors how the
+   * withdrawal cascade derives affected processors from a purpose rather
+   * than storing them directly).
+   */
+  affectedPurposeIds: string[];
   createdAt: Date;
 }
 

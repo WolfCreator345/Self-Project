@@ -1,10 +1,14 @@
 #!/usr/bin/env node
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { Queue } from "bullmq";
 import { z } from "zod";
 
 import { createRealRepositories } from "../../apps/api/src/consent-vault/create-real-repositories.js";
-import type { DSRType } from "../../mock-store/index.js";
+import type { BreachNoticeDraftJobData } from "../../jobs/src/breachNoticeDraft.js";
+import { REDIS_CONNECTION } from "../../jobs/src/config.js";
+import { BREACH_NOTICE_DRAFT_QUEUE } from "../../jobs/src/queues.js";
+import type { BreachSeverity, DSRType } from "../../mock-store/index.js";
 
 /**
  * Phase 5 cutover: wired to the real Prisma-backed repositories from
@@ -15,6 +19,17 @@ import type { DSRType } from "../../mock-store/index.js";
  * method instead of a shared `store`.
  */
 const { prisma, consent, dsr, ledger } = await createRealRepositories();
+
+/**
+ * Producer-only — this process never consumes from this queue, only adds to
+ * it. jobs/src/index.ts's long-running worker is the sole consumer, exactly
+ * the same "any process can produce, only the worker process holds live
+ * repositories and actually stages a draft" split jobs/scripts/
+ * fire-withdrawal-event.ts already established for the withdrawal cascade.
+ */
+const breachNoticeQueue = new Queue<BreachNoticeDraftJobData>(BREACH_NOTICE_DRAFT_QUEUE, {
+  connection: REDIS_CONNECTION,
+});
 
 const server = new McpServer({
   name: "consent-vault",
@@ -165,6 +180,59 @@ server.registerTool(
   },
 );
 
+// ─── report_breach_event ────────────────────────────────────────────────────
+// Write action: mutates vault state. Expect a confirmation prompt.
+const BREACH_SEVERITIES = ["low", "medium", "high", "critical"] as const satisfies readonly BreachSeverity[];
+
+server.registerTool(
+  "report_breach_event",
+  {
+    title: "Report breach event",
+    description:
+      "Log a personal data breach (Phase 7). Mutates vault state — the calling client should confirm " +
+      "with the user before invoking this. If severity is 'high' or 'critical', this automatically stages " +
+      "(never sends) a DPB notification draft and a calendar deadline for the statutory notice window — " +
+      "review pending drafts with the jobs package's `npm run list-pending`.",
+    inputSchema: {
+      description: z.string().describe("what happened"),
+      detected_at: z.string().describe("ISO 8601 date/time the breach was detected"),
+      dpb_notify_due_at: z.string().describe("ISO 8601 date/time — statutory deadline to notify the Data Protection Board"),
+      severity: z.enum(BREACH_SEVERITIES).describe("only 'high'/'critical' trigger auto-drafting a DPB notice"),
+      affected_purpose_ids: z
+        .array(z.string())
+        .default([])
+        .describe("Purpose ids affected — used to derive affected principals when drafting the DPB notice"),
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+  },
+  async ({ description, detected_at, dpb_notify_due_at, severity, affected_purpose_ids }) => {
+    try {
+      const detectedAt = new Date(detected_at);
+      const dpbNotifyDueAt = new Date(dpb_notify_due_at);
+      if (Number.isNaN(detectedAt.getTime())) throw new Error(`Invalid "detected_at" date: ${detected_at}`);
+      if (Number.isNaN(dpbNotifyDueAt.getTime())) throw new Error(`Invalid "dpb_notify_due_at" date: ${dpb_notify_due_at}`);
+
+      const breach = await ledger.createBreachEvent({
+        description,
+        detectedAt,
+        dpbNotifyDueAt,
+        severity,
+        affectedPurposeIds: affected_purpose_ids,
+      });
+
+      let noticeDrafting = false;
+      if (severity === "high" || severity === "critical") {
+        await breachNoticeQueue.add("draft", { breachEventId: breach.id });
+        noticeDrafting = true;
+      }
+
+      return ok({ ...breach, noticeDrafting });
+    } catch (error) {
+      return fail(error);
+    }
+  },
+);
+
 // ─── get_compliance_snapshot ─────────────────────────────────────────────────
 server.registerTool(
   "get_compliance_snapshot",
@@ -201,17 +269,19 @@ server.registerTool(
   {
     title: "Verify ledger integrity",
     description:
-      "Recompute the ConsentLedgerEntry hash chain from genesis and confirm it's unbroken. Optional " +
-      "from/to only narrow which entries count toward entriesChecked in the report — the chain is " +
-      "always verified in full, since a link can't be trusted in isolation from what came before it. " +
-      "Read-only.",
+      "Recompute the ConsentLedgerEntry hash chain and confirm it's unbroken. By default (Phase 6), " +
+      "only re-walks entries past an internally-cached last-verified checkpoint, self-healing to a full " +
+      "walk from genesis if that checkpoint no longer matches live data. Set verify_full_chain to true to " +
+      "force a full walk from genesis regardless of the cache (a manual 'deep verify'). Optional from/to " +
+      "only narrow which entries count toward entriesChecked in the report. Read-only.",
     inputSchema: {
       from_date: z.string().optional().describe("ISO 8601 date/time — only affects entriesChecked, not what's verified"),
       to_date: z.string().optional().describe("ISO 8601 date/time — only affects entriesChecked, not what's verified"),
+      verify_full_chain: z.boolean().default(false).describe("force a full walk from genesis, bypassing the incremental checkpoint cache"),
     },
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
   },
-  async ({ from_date, to_date }) => {
+  async ({ from_date, to_date, verify_full_chain }) => {
     try {
       let dateRange: { from: Date; to: Date } | undefined;
       if (from_date || to_date) {
@@ -222,7 +292,7 @@ server.registerTool(
         if (Number.isNaN(toDate.getTime())) throw new Error(`Invalid "to_date": ${to_date}`);
         dateRange = { from: fromDate, to: toDate };
       }
-      const report = await ledger.verifyLedgerIntegrity(dateRange);
+      const report = await ledger.verifyLedgerIntegrity(dateRange, verify_full_chain);
       return ok(report);
     } catch (error) {
       return fail(error);
@@ -234,7 +304,7 @@ const transport = new StdioServerTransport();
 await server.connect(transport);
 
 async function shutdown() {
-  await prisma.$disconnect();
+  await Promise.all([prisma.$disconnect(), breachNoticeQueue.close()]);
   process.exit(0);
 }
 process.on("SIGINT", shutdown);

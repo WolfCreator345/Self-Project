@@ -7,10 +7,25 @@
  * back via ConfirmedNotificationJobData so the ledger entry gets written.
  */
 
-export type PendingActionKind = "renewal_email" | "purge_notice_email" | "purge_followup_event";
+import type { DsrSlaThreshold } from "./dsrSlaEscalation.js";
+
+export type PendingActionKind =
+  | "renewal_email"
+  | "purge_notice_email"
+  | "purge_followup_event"
+  | "breach_notice_email"
+  | "breach_notice_deadline"
+  | "dsr_escalation_email"
+  | "weekly_report";
 
 interface PendingActionBase {
-  /** ConsentArtifact id (renewal_email) or Processor id (purge_notice_email / purge_followup_event). */
+  /**
+   * ConsentArtifact id (renewal_email), Processor id (purge_notice_email /
+   * purge_followup_event), BreachEvent id (breach_notice_email /
+   * breach_notice_deadline), DSRRequest id (dsr_escalation_email), or a
+   * synthetic "weekly-report-<from>-<to>" id (weekly_report — there's no
+   * single entity a report describes).
+   */
   refId: string;
   principalId?: string;
   recipientEmail: string;
@@ -18,26 +33,45 @@ interface PendingActionBase {
 }
 
 export interface PendingEmailAction extends PendingActionBase {
-  kind: "renewal_email" | "purge_notice_email";
+  kind: "renewal_email" | "purge_notice_email" | "breach_notice_email" | "dsr_escalation_email";
   subject: string;
   body: string;
+  /** dsr_escalation_email only — which SLA window triggered this reminder, also the dedup key. */
+  threshold?: DsrSlaThreshold;
 }
 
 export interface PendingCalendarAction extends PendingActionBase {
-  kind: "purge_followup_event";
+  kind: "purge_followup_event" | "breach_notice_deadline";
   summary: string;
   description: string;
   startTime: string;
   endTime: string;
 }
 
-export type PendingAction = PendingEmailAction | PendingCalendarAction;
+/**
+ * Phase 7's weekly compliance report: the draft carries the rendered PDF
+ * inline (base64) — a one-page compliance snapshot is small enough to fit
+ * comfortably in a BullMQ job payload — rather than writing to a shared
+ * filesystem between the job process and whatever process later confirms
+ * it, which may not be the same machine.
+ */
+export interface PendingReportAction extends PendingActionBase {
+  kind: "weekly_report";
+  subject: string;
+  body: string;
+  pdfBase64: string;
+  pdfFilename: string;
+}
+
+export type PendingAction = PendingEmailAction | PendingCalendarAction | PendingReportAction;
 
 /** Payload for the notification-confirmed queue, once a human has actually created the real artifact. */
 export interface ConfirmedNotificationJobData {
   pending: PendingAction;
   gmailDraftId?: string;
   calendarEventId?: string;
+  /** Google Drive file id — weekly_report only, alongside gmailDraftId (both artifacts confirmed together). */
+  driveFileId?: string;
   confirmedAt: string;
 }
 

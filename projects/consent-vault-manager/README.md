@@ -9,7 +9,7 @@ This project lives at `projects/consent-vault-manager/` in this repo,
 alongside the unrelated LexEdu app (`backend/`, `frontend/`) — the two are
 independent projects sharing a repo, not a monorepo (yet).
 
-## Status: Phase 6 — auth + React dashboard
+## Status: Phase 7 — breach notices, DSR SLA escalation, weekly reports
 
 Done — Phase 0 (mock data layer):
 - `mock-store/types.ts` — domain model (`DataPrincipal`, `DataFiduciary`,
@@ -370,8 +370,103 @@ Done — Phase 6 (session auth, incremental `verify_ledger_integrity`, React das
   direct navigation to a protected route while logged out bounces back to
   `/login`.
 
-Not built yet (later phases per the spec): breach notice drafting, DSR SLA
-escalation reminders, weekly compliance report export (Phase 7).
+Done — Phase 7 (breach notice drafting, DSR SLA escalation, weekly compliance report):
+- **`BreachEvent.affectedPurposeIds`.** `severity` already existed (Phase 0/2)
+  — the new field is `affectedPurposeIds: string[]`, added to `BreachEvent`,
+  `CreateBreachEventInput` (optional, defaults to `[]`), `schema.prisma`
+  (native Postgres `String[]`, migrated), and both repositories. Rather than
+  storing a redundant principal list, "affected principals" is derived at
+  draft time by querying granted `ConsentArtifact`s for these purposes —
+  mirrors how the withdrawal cascade already derives affected processors
+  from a purpose instead of storing them directly. `findBreachEventById` was
+  also added to `LedgerRepository` (mock-store + Prisma), needed by the
+  notice-drafting job to load the triggering event.
+- **New MCP tool: `report_breach_event`.** Creates the `BreachEvent` via
+  `ledger.createBreachEvent` (a real write, exactly like the other 7 write
+  tools already do — mcp-server has held its own direct Postgres connection
+  since the Phase 5 cutover, so this isn't a new architectural risk). If
+  severity is `high`/`critical`, it *also* enqueues onto a new
+  `breach-notice-draft` BullMQ queue — mcp-server gained a minimal `bullmq`
+  producer dependency for this (it never consumes, only adds), the same
+  "any process can produce, only jobs/'s worker process holds live
+  repositories and actually stages a draft" split
+  `fire-withdrawal-event.ts` already established. `verify_ledger_integrity`
+  also picked up the `verify_full_chain` param and an updated description
+  while this file was open — a real Phase 6 gap (the tool's docs still said
+  "always verified in full" after the incremental-checkpoint change).
+- **`jobs/src/breachNoticeDraft.ts`.** Consumed by a new worker in
+  `index.ts`. Drafts a DPB notification email (template covering
+  description, detection time, severity, affected purposes, and an
+  approximate affected-principal count) and stages a calendar deadline for
+  `breachEvent.dpbNotifyDueAt` — same draft-then-confirm pattern as Phase
+  3's expiry sweep/withdrawal cascade, never auto-sends/creates. Defensively
+  re-checks severity is `high`/`critical` even though the MCP tool already
+  gates on it (matches the existing pattern of server-side re-validation,
+  e.g. `revoke_consent`'s status check). Requires `DPB_NOTIFICATION_EMAIL`
+  to be set — there's no real Data Protection Board contact address to
+  default to, and silently defaulting to a real regulator's email would be
+  a genuine problem, so this throws rather than guessing.
+- **`jobs/src/dsrSlaEscalation.ts`.** A new repeatable job scanning every
+  not-yet-resolved `DSRRequest` and staging an internal reminder (to
+  `SELF_NOTIFICATION_EMAIL`, never the data principal) at T-7d and T-2d
+  before `dueAt`. Unlike expiry/withdrawal, an SLA reminder doesn't change
+  the DSRRequest's status, so there's no entity-state-change to piggyback
+  dedup on — a `hasPendingOrSentEscalation(dsrRequestId, threshold)`
+  callback does the deduping instead, checking both the still-pending Redis
+  queue (kind `dsr_escalation_email`, matching `refId` + `threshold`) and
+  confirmed ledger entries (`dsr_escalation_sent` with that `threshold` in
+  `detail`) — without checking both, a demo-cadence tick would keep
+  re-staging duplicate reminders for the same request every 2 minutes until
+  a human got around to confirming the first one.
+- **`jobs/src/weeklyComplianceReport.ts` + `jobs/src/pdfPrinter.ts`.** A new
+  repeatable job snapshots the last 7 days via
+  `ledger.getComplianceSnapshot` and renders it as a PDF with `pdfmake`,
+  configured with only the 14 standard PDF fonts (Helvetica family) — no
+  TTF files to embed or fetch, so this needs no headless browser and works
+  fully offline, per the brief. (`pdfmake`'s Node build is CommonJS with
+  Babel's `__esModule` interop; importing it as real ESM double-wraps the
+  exports, so `pdfPrinter.ts` unwraps that once — verified empirically
+  against the installed version before relying on it, documented inline in
+  case a future `pdfmake` upgrade changes its build output shape.) The PDF
+  travels inline as base64 in a new `PendingReportAction` (`weekly_report`
+  kind) — small enough for a BullMQ job payload, and avoids needing a
+  shared filesystem between the job process and whatever process later
+  confirms it. Gmail's `create_draft` tool doesn't support attachments (its
+  own tool description says so), so the design is: archive the PDF to
+  Google Drive first, then draft an email referencing that Drive link — the
+  `weekly_report` kind requires **both** `--gmail-draft-id` and
+  `--drive-file-id` together in `confirm-notification.ts` (enforced in
+  `recordConfirmedNotification`, and in the CLI's usage text), writing one
+  `weekly_report_sent` ledger entry with both ids.
+- **`list-pending.ts`** decodes a `weekly_report` item's base64 PDF and
+  writes it to a local temp file (printing the path) instead of dumping raw
+  base64 to the terminal, so a human (or Claude Code, doing the live
+  confirmation) has an actual file to upload to Drive.
+- **Verified live, mostly.** Booted the real `apps/api` + `jobs` worker
+  against real Postgres/Redis. `mcp-server`'s smoke test now covers
+  `report_breach_event` at both a logged-only severity and a
+  notice-triggering severity (8 tools total). The breach-notice and DSR
+  SLA-escalation automations were verified fully end-to-end with **real**
+  artifacts: a real Gmail draft + real Calendar event for the DPB notice,
+  and two real Gmail drafts for the T-7d/T-2d SLA reminders, each confirmed
+  via `confirm-notification.ts` and written to the ledger — confirmed by
+  re-querying `verify_ledger_integrity` afterward (`intact: true`, 31
+  entries, full walk). This session's sandbox also had Postgres and Redis
+  restart mid-verification (twice); Postgres data survived to disk as
+  expected and the same real Gmail/Calendar ids were re-confirmed against
+  freshly-restaged pending items with no loss of correctness — an
+  unplanned but useful proof that Redis is correctly treated as disposable
+  working state, not a source of truth. The weekly report's PDF generation,
+  staging, and dual-id confirm validation were all verified (including a
+  byte-for-byte valid rendered PDF, inspected directly), but the live
+  Google Drive upload itself could not be completed in this session — the
+  Drive MCP connector's tool-permission handshake failed identically
+  (`AbortError: Tool permission stream closed before response received`)
+  on every attempt, including a trivial one-line text file after a full MCP
+  reconnect, while Gmail and Calendar calls succeeded normally throughout —
+  an external connector issue in this environment, not a defect in the
+  confirm flow itself (which is otherwise identical to the two automations
+  that did confirm live).
 
 ### Design decisions made without a spec answer
 
@@ -538,7 +633,7 @@ directory — verified empirically before relying on it. Neither
 cd ../mcp-server   # projects/consent-vault-manager/mcp-server
 npm install
 npm run typecheck
-npm run smoke-test  # reseeds Postgres, then a real client/server round trip over all 7 tools
+npm run smoke-test  # reseeds Postgres, then a real client/server round trip over all 8 tools
 ```
 
 Postgres data persists across server restarts (unlike the old ephemeral
@@ -556,10 +651,11 @@ or just rely on the committed `.mcp.json` at the repo root, which Claude Code
 picks up automatically for anyone working in this repo (after `npm install`
 in both `mcp-server/` and `apps/api/`, and Postgres seeded). Try asking it
 things like "which DSRs are overdue," "check consent status for principal-1
-on purpose-2," or "verify the ledger integrity" once it's connected. If
-you already had it connected before pulling Phase 5, reconnect/restart —
-MCP tool lists are fetched once per session and won't pick up the new
-`verify_ledger_integrity` tool otherwise.
+on purpose-2," "verify the ledger integrity," or "report a high-severity
+breach affecting purpose-1" once it's connected. If you already had it
+connected before pulling this phase, reconnect/restart — MCP tool lists are
+fetched once per session and won't pick up `report_breach_event` or
+`verify_ledger_integrity`'s new `verify_full_chain` param otherwise.
 
 ### 4. jobs — its own package too; needs Redis *and* Postgres running
 
@@ -569,7 +665,7 @@ redis-server --daemonize yes          # or: docker run -d -p 6379:6379 redis
 cd ../jobs   # projects/consent-vault-manager/jobs
 npm install
 npm run typecheck
-npm test             # node:test over runExpirySweep/runWithdrawalCascade — still against mock-store, no Redis/Postgres needed
+npm test             # node:test over all six job functions — still against mock-store, no Redis/Postgres needed
 npm run smoke-test   # reseeds Postgres, spawns the real worker, drives it over real Redis, asserts on its logs (fake gmail/calendar ids)
 ```
 
@@ -578,8 +674,20 @@ npm run smoke-test   # reseeds Postgres, spawns the real worker, drives it over 
 double) — only `jobs/src/index.ts`, the live worker, was cut over to the
 real repositories.
 
+**Phase 7 env vars** (in whatever shell starts `npm start` — `jobs/` has no
+`.env` loader of its own, same as `EXPIRY_SWEEP_INTERVAL_MS` before it):
+`DPB_NOTIFICATION_EMAIL` (required for breach notice drafting — no default,
+see the Phase 7 changelog above for why) and `SELF_NOTIFICATION_EMAIL`
+(required for DSR SLA escalation and the weekly report — internal alerts go
+to the fiduciary's own inbox, never the data principal). Both demo cadences
+default to every 2/10 minutes (`DSR_SLA_ESCALATION_INTERVAL_MS`,
+`WEEKLY_COMPLIANCE_REPORT_INTERVAL_MS`) — set to `86400000` /
+`604800000` for real daily/weekly cadence.
+
 ```bash
 # run it live in two terminals:
+export DPB_NOTIFICATION_EMAIL="dpb-liaison@example.gov"
+export SELF_NOTIFICATION_EMAIL="you@example.com"
 npm start                              # terminal 1 — long-running worker, real Postgres + Redis
 npm run fire:withdrawal -- consent-4   # terminal 2 — fires a mock withdrawal event
 ```
@@ -589,23 +697,30 @@ purposes (`purpose-4`/analytics, `purpose-1`/marketing) have active
 processors, so either makes a good manual demo target. The expiry sweep
 needs no manual trigger — `consent-12` is seeded deliberately stale, so the
 very first sweep tick expires it for you (as long as Postgres has been
-freshly reseeded — see step 2).
+freshly reseeded — see step 2). The seeded overdue `dsr-2` needs no manual
+trigger either — the very first DSR SLA escalation tick stages both its
+T-7d and T-2d reminders for you.
 
 With the worker running, drafted notifications show up on the
 `pending-notifications` queue instead of being sent — review and confirm
 them from a second terminal:
 
 ```bash
-npm run list-pending                                          # see every drafted email/event awaiting confirmation
+npm run list-pending                                          # see every drafted email/event/report awaiting confirmation
 # ... create the real Gmail draft / Calendar event via Claude Code ...
 npm run confirm -- <pendingJobId> --gmail-draft-id=<id>       # for a drafted email
 npm run confirm -- <pendingJobId> --calendar-event-id=<id>    # for a drafted calendar event
+npm run confirm -- <pendingJobId> --drive-file-id=<id>        # weekly_report needs this + --gmail-draft-id together
 ```
 
-`confirm-notification.ts` has no Gmail/Calendar credentials itself — it only
-records that a human (via Claude Code's live MCP tool access) already
-created the real draft/event. Skipping straight to `confirm` without
-actually creating anything just puts a fabricated id on the ledger, so don't.
+`confirm-notification.ts` has no Gmail/Calendar/Drive credentials itself —
+it only records that a human (via Claude Code's live MCP tool access)
+already created the real draft/event/file. Skipping straight to `confirm`
+without actually creating anything just puts a fabricated id on the ledger,
+so don't. For `weekly_report`, `list-pending` decodes the staged PDF to a
+local temp file and prints the path — upload that file to Drive, note the
+returned file id, then draft a Gmail email referencing it before confirming
+with both `--gmail-draft-id` and `--drive-file-id`.
 
 ### 5. apps/dashboard — React + Vite, needs `apps/api` running
 
@@ -624,5 +739,8 @@ the `ADMIN_USERNAME`/password whose bcrypt hash you put in `apps/api/.env`.
 
 ## Next step
 
-Phase 7 — breach notice drafting, DSR SLA escalation reminders, weekly
-compliance report export, per the spec.
+All phases from the original spec are now built. Remaining open item:
+complete a live end-to-end confirmation of the weekly compliance report's
+Google Drive upload leg (PDF generation, staging, and dual-id confirm
+validation are all verified — only the live Drive upload itself hit a
+transient connector issue in this session; see the Phase 7 changelog above).

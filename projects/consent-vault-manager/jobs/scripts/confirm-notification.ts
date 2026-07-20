@@ -24,17 +24,21 @@ function parseArg(flag: string): string | undefined {
 async function main() {
   const pendingJobId = process.argv[2];
   if (!pendingJobId) {
-    console.error("Usage: npm run confirm -- <pendingJobId> [--gmail-draft-id=<id>] [--calendar-event-id=<id>]");
+    console.error(
+      "Usage: npm run confirm -- <pendingJobId> [--gmail-draft-id=<id>] [--calendar-event-id=<id>] [--drive-file-id=<id>]",
+    );
     process.exitCode = 1;
     return;
   }
 
   const gmailDraftId = parseArg("gmail-draft-id");
   const calendarEventId = parseArg("calendar-event-id");
-  if (!gmailDraftId && !calendarEventId) {
+  const driveFileId = parseArg("drive-file-id");
+  if (!gmailDraftId && !calendarEventId && !driveFileId) {
     console.error(
-      "Provide at least one of --gmail-draft-id or --calendar-event-id — " +
-        "confirmation must reference the real artifact that was actually created.",
+      "Provide at least one of --gmail-draft-id, --calendar-event-id, or --drive-file-id — " +
+        "confirmation must reference the real artifact that was actually created. " +
+        "(weekly_report needs both --gmail-draft-id and --drive-file-id together.)",
     );
     process.exitCode = 1;
     return;
@@ -56,6 +60,7 @@ async function main() {
     pending: pendingJob.data,
     gmailDraftId,
     calendarEventId,
+    driveFileId,
     confirmedAt: new Date().toISOString(),
   });
   await pendingJob.remove();

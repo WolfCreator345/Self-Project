@@ -140,6 +140,7 @@ export function createSeedData(): SeedData {
       detectedAt: d("2026-07-10"),
       dpbNotifyDueAt: d("2026-07-13"),
       severity: "high",
+      affectedPurposeIds: ["purpose-1"],
       createdAt: d("2026-07-10"),
     },
   ];

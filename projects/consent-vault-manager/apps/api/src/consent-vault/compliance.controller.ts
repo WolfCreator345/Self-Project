@@ -1,6 +1,7 @@
 import { Controller, Get, Query } from "@nestjs/common";
 
 import { addDays } from "./date-utils";
+import { PendingBreachNoticesService } from "./pending-breach-notices.service";
 import { PrismaLedgerRepository } from "./prisma-ledger.repository";
 
 const DEFAULT_SNAPSHOT_WINDOW_DAYS = 90;
@@ -8,7 +9,10 @@ const DEFAULT_SNAPSHOT_WINDOW_DAYS = 90;
 /** Backs the dashboard's compliance snapshot view — the same data get_compliance_snapshot exposes over MCP. */
 @Controller("compliance")
 export class ComplianceController {
-  constructor(private readonly ledgerRepository: PrismaLedgerRepository) {}
+  constructor(
+    private readonly ledgerRepository: PrismaLedgerRepository,
+    private readonly pendingBreachNotices: PendingBreachNoticesService,
+  ) {}
 
   @Get("snapshot")
   snapshot(@Query("from") from?: string, @Query("to") to?: string) {
@@ -31,5 +35,11 @@ export class ComplianceController {
   @Get("breach-events")
   breachEvents() {
     return this.ledgerRepository.listBreachEvents();
+  }
+
+  /** Phase 7: drafted-but-unconfirmed DPB notice emails/deadlines, for manual review on the dashboard. */
+  @Get("pending-breach-notices")
+  pendingBreachNoticesList() {
+    return this.pendingBreachNotices.list();
   }
 }

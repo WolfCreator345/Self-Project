@@ -105,6 +105,11 @@ export class PrismaLedgerRepository implements LedgerRepository {
     return rows.map(toDomainBreachEvent);
   }
 
+  async findBreachEventById(id: string): Promise<BreachEvent | null> {
+    const row = await this.prisma.breachEvent.findUnique({ where: { id } });
+    return row ? toDomainBreachEvent(row) : null;
+  }
+
   async getComplianceSnapshot(dateRange: DateRange): Promise<ComplianceSnapshot> {
     const { from, to } = dateRange;
     const now = new Date();

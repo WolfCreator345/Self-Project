@@ -314,7 +314,12 @@ export class InMemoryConsentVaultStore implements ConsentRepository, DSRReposito
   }
 
   async createBreachEvent(input: CreateBreachEventInput): Promise<BreachEvent> {
-    const event: BreachEvent = { id: randomUUID(), ...input, createdAt: new Date() };
+    const event: BreachEvent = {
+      id: randomUUID(),
+      ...input,
+      affectedPurposeIds: input.affectedPurposeIds ?? [],
+      createdAt: new Date(),
+    };
     this.breachEvents.set(event.id, event);
     await this.appendEntry({
       entryType: "breach_logged",
@@ -326,6 +331,10 @@ export class InMemoryConsentVaultStore implements ConsentRepository, DSRReposito
 
   async listBreachEvents(params?: PageParams): Promise<BreachEvent[]> {
     return paginate([...this.breachEvents.values()], params);
+  }
+
+  async findBreachEventById(id: string): Promise<BreachEvent | null> {
+    return this.breachEvents.get(id) ?? null;
   }
 
   async getComplianceSnapshot(dateRange: DateRange): Promise<ComplianceSnapshot> {

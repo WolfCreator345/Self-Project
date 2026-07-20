@@ -149,6 +149,8 @@ export interface CreateBreachEventInput {
   detectedAt: Date;
   dpbNotifyDueAt: Date;
   severity: BreachSeverity;
+  /** Purposes affected by this breach. Defaults to [] if omitted. Phase 7. */
+  affectedPurposeIds?: string[];
 }
 
 export interface DateRange {
@@ -182,6 +184,8 @@ export interface LedgerRepository {
 
   createBreachEvent(input: CreateBreachEventInput): Promise<BreachEvent>;
   listBreachEvents(params?: PageParams): Promise<BreachEvent[]>;
+  /** Added in Phase 7 for the breach-notice-drafting job to load the triggering event. */
+  findBreachEventById(id: string): Promise<BreachEvent | null>;
 
   /** Backs the `get_compliance_snapshot` MCP tool. */
   getComplianceSnapshot(dateRange: DateRange): Promise<ComplianceSnapshot>;

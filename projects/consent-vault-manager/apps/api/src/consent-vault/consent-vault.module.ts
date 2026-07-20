@@ -3,6 +3,7 @@ import { Module } from "@nestjs/common";
 import { ComplianceController } from "./compliance.controller";
 import { ConsentArtifactsController } from "./consent-artifacts.controller";
 import { DSRRequestsController } from "./dsr-requests.controller";
+import { PendingBreachNoticesService } from "./pending-breach-notices.service";
 import { PrincipalsController } from "./principals.controller";
 import { PrismaConsentRepository } from "./prisma-consent.repository";
 import { PrismaDSRRepository } from "./prisma-dsr.repository";
@@ -17,7 +18,7 @@ import { PurposesController } from "./purposes.controller";
     DSRRequestsController,
     ComplianceController,
   ],
-  providers: [PrismaConsentRepository, PrismaDSRRepository, PrismaLedgerRepository],
+  providers: [PrismaConsentRepository, PrismaDSRRepository, PrismaLedgerRepository, PendingBreachNoticesService],
   exports: [PrismaConsentRepository, PrismaDSRRepository, PrismaLedgerRepository],
 })
 export class ConsentVaultModule {}

@@ -52,10 +52,11 @@ async function main() {
     "create_dsr_request",
     "get_compliance_snapshot",
     "list_open_dsr_requests",
+    "report_breach_event",
     "revoke_consent",
     "verify_ledger_integrity",
   ]);
-  console.log(`✓ all 7 tools registered: ${toolNames.join(", ")}`);
+  console.log(`✓ all 8 tools registered: ${toolNames.join(", ")}`);
 
   // check_consent_status — known seeded pair
   const status = await client.callTool({
@@ -128,6 +129,36 @@ async function main() {
   assert.equal(dsrData.type, "access");
   console.log(`✓ create_dsr_request created ${dsrData.id}`);
 
+  // report_breach_event — low severity: logged, no notice drafting
+  const lowBreach = await client.callTool({
+    name: "report_breach_event",
+    arguments: {
+      description: "Smoke-test low-severity breach",
+      detected_at: new Date().toISOString(),
+      dpb_notify_due_at: new Date(Date.now() + 72 * 60 * 60 * 1000).toISOString(),
+      severity: "low",
+    },
+  });
+  const lowBreachData = textOf(lowBreach) as { id: string; noticeDrafting: boolean };
+  assert.equal(lowBreachData.noticeDrafting, false);
+  console.log(`✓ report_breach_event(severity: low) logged ${lowBreachData.id} without triggering notice drafting`);
+
+  // report_breach_event — high severity: logged AND enqueues onto the breach-notice-draft
+  // queue (BREACH_NOTICE_DRAFT_QUEUE) for jobs/'s worker to pick up and stage a draft.
+  const highBreach = await client.callTool({
+    name: "report_breach_event",
+    arguments: {
+      description: "Smoke-test high-severity breach",
+      detected_at: new Date().toISOString(),
+      dpb_notify_due_at: new Date(Date.now() + 72 * 60 * 60 * 1000).toISOString(),
+      severity: "high",
+      affected_purpose_ids: ["purpose-1"],
+    },
+  });
+  const highBreachData = textOf(highBreach) as { id: string; noticeDrafting: boolean };
+  assert.equal(highBreachData.noticeDrafting, true);
+  console.log(`✓ report_breach_event(severity: high) logged ${highBreachData.id} and triggered notice drafting`);
+
   // get_compliance_snapshot
   const snapshot = await client.callTool({
     name: "get_compliance_snapshot",
@@ -136,7 +167,8 @@ async function main() {
   const snapshotData = textOf(snapshot) as { consentsGranted: number; dsrOverdue: number; breachesLogged: number };
   assert.ok(snapshotData.consentsGranted > 0);
   assert.ok(snapshotData.dsrOverdue >= 1);
-  assert.equal(snapshotData.breachesLogged, 1);
+  // 1 seeded (breach-1) + the 2 report_breach_event calls just made above.
+  assert.equal(snapshotData.breachesLogged, 3);
   console.log("✓ get_compliance_snapshot aggregates consents, DSRs, and breaches");
 
   // get_compliance_snapshot — bad input surfaces as a tool error
@@ -155,7 +187,7 @@ async function main() {
   });
   const integrityData = textOf(integrity) as { intact: boolean; entriesChecked: number };
   assert.equal(integrityData.intact, true);
-  assert.ok(integrityData.entriesChecked >= 21 + 3); // 21 seeded + at least the 3 writes made above
+  assert.ok(integrityData.entriesChecked >= 21 + 5); // 21 seeded + at least the 5 writes made above (3 consent/dsr + 2 breach logs)
   console.log(`✓ verify_ledger_integrity reports the chain intact (${integrityData.entriesChecked} entries)`);
 
   // verify_ledger_integrity — malformed date range surfaces as a tool error

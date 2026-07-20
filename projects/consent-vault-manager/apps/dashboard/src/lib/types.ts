@@ -70,3 +70,17 @@ export interface LedgerIntegrityReport {
   verifiedFullChain: boolean;
   firstBreak?: LedgerIntegrityBreak;
 }
+
+/** A drafted-but-unconfirmed DPB notice email or deadline, staged in Redis — Phase 7. */
+export interface PendingBreachNotice {
+  pendingJobId: string;
+  kind: "breach_notice_email" | "breach_notice_deadline";
+  breachEventId: string;
+  stagedAt: string;
+  detail: {
+    subject?: string;
+    summary?: string;
+    recipientEmail: string;
+    startTime?: string;
+  };
+}

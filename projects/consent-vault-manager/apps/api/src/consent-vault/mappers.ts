@@ -105,6 +105,7 @@ export function toDomainBreachEvent(row: PrismaBreachEvent): BreachEvent {
     detectedAt: row.detectedAt,
     dpbNotifyDueAt: row.dpbNotifyDueAt,
     severity: row.severity,
+    affectedPurposeIds: row.affectedPurposeIds,
     createdAt: row.createdAt,
   };
 }

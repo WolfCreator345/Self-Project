@@ -35,6 +35,10 @@ enum LedgerEntryType {
   renewal_email_drafted
   purge_notice_email_drafted
   purge_followup_event_scheduled
+  breach_notice_drafted
+  breach_notice_deadline_scheduled
+  dsr_escalation_sent
+  weekly_report_sent
 }
 
 enum DSRType {
@@ -91,11 +95,11 @@ model DataPrincipal {
 }
 
 model Purpose {
-  id                  String   @id @default(uuid())
+  id                  String      @id @default(uuid())
   description         String
   lawfulBasis         LawfulBasis
   retentionPeriodDays Int
-  createdAt           DateTime @default(now())
+  createdAt           DateTime    @default(now())
 
   consentArtifacts ConsentArtifact[]
   processors       Processor[]
@@ -148,14 +152,14 @@ model ConsentLedgerEntry {
 }
 
 model DSRRequest {
-  id          String     @id @default(uuid())
+  id          String    @id @default(uuid())
   principalId String
   type        DSRType
   submittedAt DateTime
   dueAt       DateTime
   status      DSRStatus
   resolvedAt  DateTime?
-  createdAt   DateTime   @default(now())
+  createdAt   DateTime  @default(now())
 
   principal DataPrincipal @relation(fields: [principalId], references: [id])
 
@@ -165,12 +169,14 @@ model DSRRequest {
 }
 
 model BreachEvent {
-  id             String         @id @default(uuid())
-  description    String
-  detectedAt     DateTime
-  dpbNotifyDueAt DateTime
-  severity       BreachSeverity
-  createdAt      DateTime       @default(now())
+  id                 String         @id @default(uuid())
+  description        String
+  detectedAt         DateTime
+  dpbNotifyDueAt     DateTime
+  severity           BreachSeverity
+  /// Purposes affected by this breach — Phase 7, see mock-store/types.ts's BreachEvent doc comment.
+  affectedPurposeIds String[]       @default([])
+  createdAt          DateTime       @default(now())
 
   @@map("breach_events")
 }

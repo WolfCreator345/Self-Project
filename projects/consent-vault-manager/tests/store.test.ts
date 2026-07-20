@@ -161,6 +161,44 @@ describe("LedgerRepository", () => {
     assert.equal(snapshot.breachesLogged, 1);
   });
 
+  it("seeds breach-1 with a high severity and its affected purpose", async () => {
+    const store = createSeededStore();
+    const breach = await store.findBreachEventById("breach-1");
+    assert.equal(breach?.severity, "high");
+    assert.deepEqual(breach?.affectedPurposeIds, ["purpose-1"]);
+  });
+
+  it("findBreachEventById returns null for an unknown id", async () => {
+    const store = createSeededStore();
+    assert.equal(await store.findBreachEventById("no-such-breach"), null);
+  });
+
+  it("createBreachEvent defaults affectedPurposeIds to [] when omitted", async () => {
+    const store = createSeededStore();
+    const breach = await store.createBreachEvent({
+      description: "Test breach with no purposes recorded",
+      detectedAt: new Date(),
+      dpbNotifyDueAt: new Date(Date.now() + 72 * 60 * 60 * 1000),
+      severity: "critical",
+    });
+    assert.deepEqual(breach.affectedPurposeIds, []);
+
+    const found = await store.findBreachEventById(breach.id);
+    assert.deepEqual(found?.affectedPurposeIds, []);
+  });
+
+  it("createBreachEvent preserves explicit affectedPurposeIds", async () => {
+    const store = createSeededStore();
+    const breach = await store.createBreachEvent({
+      description: "Multi-purpose breach",
+      detectedAt: new Date(),
+      dpbNotifyDueAt: new Date(Date.now() + 72 * 60 * 60 * 1000),
+      severity: "high",
+      affectedPurposeIds: ["purpose-1", "purpose-2"],
+    });
+    assert.deepEqual(breach.affectedPurposeIds, ["purpose-1", "purpose-2"]);
+  });
+
   it("seeds a valid hash chain, reported intact end to end", async () => {
     const store = createSeededStore();
     const entries = await store.listEntries();
