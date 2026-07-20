@@ -86,10 +86,19 @@ export interface HashedLedgerEntry extends HashableLedgerEntry {
 
 /**
  * Walks entries (must already be sorted by `sequence` ascending) from
- * genesis, recomputing each hash and checking it links to the previous one.
+ * `startingHash` (genesis by default), recomputing each hash and checking it
+ * links to the previous one. Passing a non-genesis `startingHash` is what
+ * makes incremental verification possible: given entries past a trusted
+ * checkpoint and that checkpoint's own hash, this checks they link to it
+ * exactly the same way it'd check any other entry links to its predecessor.
+ * Mirrors mock-store/hashChain.ts's verifyChain — see that file's header
+ * comment for why this is duplicated rather than imported.
  */
-export function verifyChain(entries: HashedLedgerEntry[]): ChainVerificationResult {
-  let previousHash = LEDGER_GENESIS_HASH;
+export function verifyChain(
+  entries: HashedLedgerEntry[],
+  startingHash: string = LEDGER_GENESIS_HASH,
+): ChainVerificationResult {
+  let previousHash = startingHash;
   for (const entry of entries) {
     if (entry.previousHash !== previousHash) {
       return {

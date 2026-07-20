@@ -60,6 +60,7 @@ export class PrismaDSRRepository implements DSRRepository {
     if (params?.principalId) AND.push({ principalId: params.principalId });
     if (params?.overdueOnly) AND.push({ status: { not: "resolved" }, dueAt: { lt: new Date() } });
     if (params?.status) AND.push({ status: params.status });
+    if (params?.type) AND.push({ type: params.type });
 
     const rows = await this.prisma.dSRRequest.findMany({
       where: AND.length > 0 ? { AND } : undefined,

@@ -4,10 +4,14 @@ import type { ConsentStatus } from "../../../../mock-store/types";
 import { CreateConsentArtifactDto } from "./dto/create-consent-artifact.dto";
 import { RevokeConsentDto } from "./dto/revoke-consent.dto";
 import { PrismaConsentRepository } from "./prisma-consent.repository";
+import { PrismaLedgerRepository } from "./prisma-ledger.repository";
 
 @Controller("consent-artifacts")
 export class ConsentArtifactsController {
-  constructor(private readonly consentRepository: PrismaConsentRepository) {}
+  constructor(
+    private readonly consentRepository: PrismaConsentRepository,
+    private readonly ledgerRepository: PrismaLedgerRepository,
+  ) {}
 
   @Get()
   list(
@@ -50,5 +54,13 @@ export class ConsentArtifactsController {
     } catch (error) {
       throw new BadRequestException(error instanceof Error ? error.message : String(error));
     }
+  }
+
+  /** Backs the dashboard's "click a row to see its ledger history" consent-status view. */
+  @Get(":id/ledger")
+  async ledger(@Param("id") id: string) {
+    const artifact = await this.consentRepository.findConsentArtifactById(id);
+    if (!artifact) throw new NotFoundException(`Unknown consent artifact: ${id}`);
+    return this.ledgerRepository.listEntries({ refId: id });
   }
 }

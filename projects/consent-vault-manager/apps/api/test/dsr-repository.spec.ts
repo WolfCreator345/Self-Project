@@ -33,6 +33,19 @@ describe("PrismaDSRRepository", () => {
     expect(overdue[0]!.id).toBe("dsr-2");
   });
 
+  it("filters DSR requests by type", async () => {
+    await dsrRepository.createDSRRequest({ principalId: "principal-1", type: "erasure" });
+    await dsrRepository.createDSRRequest({ principalId: "principal-2", type: "correction" });
+
+    const erasureRequests = await dsrRepository.listDSRRequests({ type: "erasure" });
+    expect(erasureRequests.length).toBeGreaterThan(0);
+    expect(erasureRequests.every((r) => r.type === "erasure")).toBe(true);
+
+    const correctionRequests = await dsrRepository.listDSRRequests({ type: "correction" });
+    expect(correctionRequests.length).toBeGreaterThan(0);
+    expect(correctionRequests.every((r) => r.type === "correction")).toBe(true);
+  });
+
   it("resolving a DSR request writes a ledger entry and sets resolvedAt", async () => {
     const before = await ledger.listEntries();
     const resolved = await dsrRepository.updateDSRStatus("dsr-1", "resolved");

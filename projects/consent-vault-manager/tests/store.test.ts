@@ -133,6 +133,20 @@ describe("DSRRepository", () => {
     assert.equal(diffDays, 30);
     assert.equal(request.status, "open");
   });
+
+  it("filters DSR requests by type", async () => {
+    const store = createSeededStore();
+    await store.createDSRRequest({ principalId: "principal-1", type: "erasure" });
+    await store.createDSRRequest({ principalId: "principal-2", type: "correction" });
+
+    const erasureRequests = await store.listDSRRequests({ type: "erasure" });
+    assert.ok(erasureRequests.length > 0);
+    assert.ok(erasureRequests.every((r) => r.type === "erasure"));
+
+    const correctionRequests = await store.listDSRRequests({ type: "correction" });
+    assert.ok(correctionRequests.length > 0);
+    assert.ok(correctionRequests.every((r) => r.type === "correction"));
+  });
 });
 
 describe("LedgerRepository", () => {
@@ -180,6 +194,54 @@ describe("LedgerRepository", () => {
     assert.equal(report.intact, true);
     assert.ok(report.entriesChecked > 0);
     assert.ok(report.entriesChecked <= allEntries.length);
+  });
+
+  it("the first call on a fresh store always walks the full chain", async () => {
+    const store = createSeededStore();
+    const entries = await store.listEntries();
+    const report = await store.verifyLedgerIntegrity();
+    assert.equal(report.verifiedFullChain, true);
+    assert.equal(report.entriesChecked, entries.length);
+  });
+
+  it("a second call with no new entries only re-checks the delta (nothing)", async () => {
+    const store = createSeededStore();
+    await store.verifyLedgerIntegrity(); // sets the checkpoint
+
+    const report = await store.verifyLedgerIntegrity();
+    assert.equal(report.intact, true);
+    assert.equal(report.verifiedFullChain, false);
+    assert.equal(report.entriesChecked, 0);
+  });
+
+  it("after appending new entries, only the delta past the checkpoint is checked", async () => {
+    const store = createSeededStore();
+    await store.verifyLedgerIntegrity(); // sets the checkpoint at the current tail
+
+    await store.createDSRRequest({ principalId: "principal-1", type: "access" });
+    await store.createConsentArtifact({
+      principalId: "principal-2",
+      purposeId: "purpose-1",
+      noticeVersion: "v1.0",
+      language: "en",
+    });
+
+    const report = await store.verifyLedgerIntegrity();
+    assert.equal(report.intact, true);
+    assert.equal(report.verifiedFullChain, false);
+    // 1 DSR creation + 1 consent grant = 2 new ledger entries since the checkpoint.
+    assert.equal(report.entriesChecked, 2);
+  });
+
+  it("verifyFullChain: true forces a full walk from genesis even with a valid checkpoint", async () => {
+    const store = createSeededStore();
+    const entries = await store.listEntries();
+    await store.verifyLedgerIntegrity(); // sets the checkpoint
+
+    const report = await store.verifyLedgerIntegrity(undefined, true);
+    assert.equal(report.intact, true);
+    assert.equal(report.verifiedFullChain, true);
+    assert.equal(report.entriesChecked, entries.length);
   });
 });
 

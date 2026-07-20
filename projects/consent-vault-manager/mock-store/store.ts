@@ -57,6 +57,8 @@ export class InMemoryConsentVaultStore implements ConsentRepository, DSRReposito
   private sequence = 0;
   /** Hash of the most recently appended ledger entry, or genesis if none yet. */
   private lastHash: string = LEDGER_GENESIS_HASH;
+  /** Last checkpoint verifyLedgerIntegrity successfully verified up to. Phase 6. */
+  private lastVerifiedCheckpoint: { sequence: number; hash: string } | null = null;
 
   constructor(seed: SeedData) {
     this.fiduciary = seed.fiduciary;
@@ -258,6 +260,7 @@ export class InMemoryConsentVaultStore implements ConsentRepository, DSRReposito
     }
     if (params?.status) items = items.filter((req) => req.status === params.status);
     if (params?.principalId) items = items.filter((req) => req.principalId === params.principalId);
+    if (params?.type) items = items.filter((req) => req.type === params.type);
     return paginate(items, params);
   }
 
@@ -343,19 +346,40 @@ export class InMemoryConsentVaultStore implements ConsentRepository, DSRReposito
     };
   }
 
-  async verifyLedgerIntegrity(dateRange?: DateRange): Promise<LedgerIntegrityReport> {
+  async verifyLedgerIntegrity(dateRange?: DateRange, verifyFullChain = false): Promise<LedgerIntegrityReport> {
     // Sorted by sequence (not recordedAt/timestamp) — true write order is
     // what the chain follows, and the two aren't guaranteed to agree if
     // the system clock wasn't monotonic.
     const ordered = [...this.ledgerEntries].sort((a, b) => a.sequence - b.sequence);
-    const result = verifyChain(ordered);
+
+    // Only trust the cached checkpoint if an entry with that exact
+    // sequence+hash still exists — if the store was reseeded or mutated
+    // out-of-band since the last check, self-heal by falling back to a
+    // full walk instead of verifying from a checkpoint that no longer
+    // reflects reality.
+    let checkpoint: { sequence: number; hash: string } | null = null;
+    if (!verifyFullChain && this.lastVerifiedCheckpoint) {
+      const stillValid = ordered.some(
+        (e) => e.sequence === this.lastVerifiedCheckpoint!.sequence && e.hash === this.lastVerifiedCheckpoint!.hash,
+      );
+      checkpoint = stillValid ? this.lastVerifiedCheckpoint : null;
+    }
+
+    const toVerify = checkpoint ? ordered.filter((e) => e.sequence > checkpoint!.sequence) : ordered;
+    const startingHash = checkpoint?.hash ?? LEDGER_GENESIS_HASH;
+    const result = verifyChain(toVerify, startingHash);
+
+    if (result.intact && toVerify.length > 0) {
+      const last = toVerify[toVerify.length - 1]!;
+      this.lastVerifiedCheckpoint = { sequence: last.sequence, hash: last.hash };
+    }
 
     const entriesChecked = dateRange
-      ? ordered.filter(
+      ? toVerify.filter(
           (e) => e.recordedAt.getTime() >= dateRange.from.getTime() && e.recordedAt.getTime() <= dateRange.to.getTime(),
         ).length
-      : ordered.length;
+      : toVerify.length;
 
-    return { intact: result.intact, entriesChecked, firstBreak: result.firstBreak };
+    return { intact: result.intact, entriesChecked, verifiedFullChain: !checkpoint, firstBreak: result.firstBreak };
   }
 }

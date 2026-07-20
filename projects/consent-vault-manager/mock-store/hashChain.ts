@@ -76,13 +76,22 @@ export interface HashedLedgerEntry extends HashableLedgerEntry {
 
 /**
  * Walks entries (must already be sorted by `sequence` ascending) from
- * genesis, recomputing each hash and checking it links to the previous
- * one. Stops at the first break, if any — the whole point of a hash chain
- * is that everything after a tampered/corrupted row is unverifiable
- * anyway, so there's nothing more useful to report past that point.
+ * `startingHash` (genesis by default), recomputing each hash and checking
+ * it links to the previous one. Stops at the first break, if any — the
+ * whole point of a hash chain is that everything after a tampered/corrupted
+ * row is unverifiable anyway, so there's nothing more useful to report past
+ * that point.
+ *
+ * Passing a non-genesis `startingHash` is what makes incremental
+ * verification possible: given entries past a trusted checkpoint and that
+ * checkpoint's own hash, this checks they link to it exactly the same way
+ * it'd check any other entry links to its predecessor.
  */
-export function verifyChain(entries: HashedLedgerEntry[]): ChainVerificationResult {
-  let previousHash = LEDGER_GENESIS_HASH;
+export function verifyChain(
+  entries: HashedLedgerEntry[],
+  startingHash: string = LEDGER_GENESIS_HASH,
+): ChainVerificationResult {
+  let previousHash = startingHash;
   for (const entry of entries) {
     if (entry.previousHash !== previousHash) {
       return {

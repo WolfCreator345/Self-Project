@@ -86,4 +86,55 @@ describe("PrismaLedgerRepository", () => {
     expect(report.entriesChecked).toBeGreaterThan(0);
     expect(report.entriesChecked).toBeLessThanOrEqual(allEntries.length);
   });
+
+  it("a second call with no new entries only re-checks the delta (nothing)", async () => {
+    await ledger.verifyLedgerIntegrity(); // sets the checkpoint; DB is fresh from beforeEach
+
+    const report = await ledger.verifyLedgerIntegrity();
+    expect(report.intact).toBe(true);
+    expect(report.verifiedFullChain).toBe(false);
+    expect(report.entriesChecked).toBe(0);
+  });
+
+  it("after appending a new entry, only the delta past the checkpoint is checked", async () => {
+    await ledger.verifyLedgerIntegrity(); // sets the checkpoint
+
+    await ledger.createBreachEvent({
+      description: "Post-checkpoint breach",
+      detectedAt: new Date(),
+      dpbNotifyDueAt: new Date(Date.now() + 72 * 60 * 60 * 1000),
+      severity: "low",
+    });
+
+    const report = await ledger.verifyLedgerIntegrity();
+    expect(report.intact).toBe(true);
+    expect(report.verifiedFullChain).toBe(false);
+    expect(report.entriesChecked).toBe(1);
+  });
+
+  it("verifyFullChain: true forces a full walk from genesis even with a valid checkpoint", async () => {
+    const entries = await ledger.listEntries();
+    await ledger.verifyLedgerIntegrity(); // sets the checkpoint
+
+    const report = await ledger.verifyLedgerIntegrity(undefined, true);
+    expect(report.intact).toBe(true);
+    expect(report.verifiedFullChain).toBe(true);
+    expect(report.entriesChecked).toBe(entries.length);
+  });
+
+  it("self-heals to a full walk if the cached checkpoint no longer matches live data", async () => {
+    await ledger.verifyLedgerIntegrity(); // sets a checkpoint against the current (pre-reset) rows
+
+    // Simulate the data being reseeded out-of-band since the last check —
+    // resetDatabase deletes and re-inserts every row, so Postgres's
+    // never-reused autoincrement `sequence` means the old checkpoint can no
+    // longer match any live row.
+    await resetDatabase(prisma);
+    const entries = await ledger.listEntries();
+
+    const report = await ledger.verifyLedgerIntegrity();
+    expect(report.intact).toBe(true);
+    expect(report.verifiedFullChain).toBe(true);
+    expect(report.entriesChecked).toBe(entries.length);
+  });
 });

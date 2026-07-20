@@ -116,6 +116,8 @@ export interface ListDSRRequestsParams extends PageParams {
   overdueOnly?: boolean;
   status?: DSRStatus;
   principalId?: string;
+  /** Added in Phase 6 for the dashboard's DSR queue type filter. */
+  type?: DSRType;
 }
 
 export interface DSRRepository {
@@ -168,6 +170,8 @@ export interface ComplianceSnapshot {
 export interface LedgerIntegrityReport {
   intact: boolean;
   entriesChecked: number;
+  /** True if this call walked the full chain from genesis; false if it only checked entries past a cached checkpoint. */
+  verifiedFullChain: boolean;
   firstBreak?: LedgerIntegrityBreak;
 }
 
@@ -183,11 +187,19 @@ export interface LedgerRepository {
   getComplianceSnapshot(dateRange: DateRange): Promise<ComplianceSnapshot>;
 
   /**
-   * Backs the `verify_ledger_integrity` MCP tool (Phase 5). Always walks
-   * the full chain from genesis regardless of dateRange — a hash chain
-   * can't be verified in isolation without the true prior link — but when
-   * dateRange is given, only entries whose recordedAt falls inside it count
-   * toward entriesChecked.
+   * Backs the `verify_ledger_integrity` MCP tool. By default (Phase 6),
+   * incrementally verifies only entries past the last successfully-verified
+   * checkpoint (an internally-cached {sequence, hash} pair) — checking that
+   * the first new entry's previousHash matches the cached hash, then
+   * walking forward from there, rather than re-walking the entire chain on
+   * every call. Pass verifyFullChain: true to force a full walk from
+   * genesis regardless of any cached checkpoint (a "deep verify"). Falls
+   * back to a full walk automatically if the cached checkpoint no longer
+   * matches the data (e.g. it was reseeded out-of-band since the last check).
+   * When dateRange is given, only entries whose recordedAt falls inside it
+   * count toward entriesChecked — entriesChecked otherwise reflects exactly
+   * what this call examined (the incremental delta, or everything on a full
+   * walk), not the full ledger size.
    */
-  verifyLedgerIntegrity(dateRange?: DateRange): Promise<LedgerIntegrityReport>;
+  verifyLedgerIntegrity(dateRange?: DateRange, verifyFullChain?: boolean): Promise<LedgerIntegrityReport>;
 }

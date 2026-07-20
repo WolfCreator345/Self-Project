@@ -9,7 +9,7 @@ This project lives at `projects/consent-vault-manager/` in this repo,
 alongside the unrelated LexEdu app (`backend/`, `frontend/`) — the two are
 independent projects sharing a repo, not a monorepo (yet).
 
-## Status: Phase 5 — cut over, hash-chained ledger
+## Status: Phase 6 — auth + React dashboard
 
 Done — Phase 0 (mock data layer):
 - `mock-store/types.ts` — domain model (`DataPrincipal`, `DataFiduciary`,
@@ -266,9 +266,112 @@ Done — Phase 5 (hash-chained ledger, cutover, `verify_ledger_integrity`):
   doesn't). Fixed with a `moduleNameMapper` in `apps/api/package.json`
   stripping `.js` from relative specifiers before ts-jest resolves them.
 
-Not built yet (later phases per the spec): React dashboard (Phase 6), breach
-notice drafting, DSR SLA escalation reminders, weekly compliance report
-export (Phase 7).
+Done — Phase 6 (session auth, incremental `verify_ledger_integrity`, React dashboard):
+- **Incremental ledger verification.** `LedgerRepository.verifyLedgerIntegrity`
+  gained a second param, `verifyFullChain = false`, and now caches an
+  in-memory `{ sequence, hash }` checkpoint (instance-level — both the Nest
+  app and the manually-wired `mcp-server`/`jobs` process construct exactly
+  one long-lived repository instance per process, so this is safe). By
+  default, a call only re-walks entries *past* the cached checkpoint,
+  treating the checkpoint's own hash as the `startingHash` for `verifyChain`
+  — `hashChain.ts`'s `verifyChain` (both copies) gained that param too. If
+  the cached checkpoint no longer matches a live row (e.g. the table was
+  reseeded out-of-band since the last check), it **self-heals** to a full
+  walk from genesis rather than silently trusting stale state — verified in
+  both mock-store's tests (checkpoint object staying valid across in-memory
+  mutation) and apps/api's (real self-heal after `resetDatabase()`, since
+  Postgres's never-reused autoincrement `sequence` guarantees the old
+  checkpoint can't match any row post-reseed). `verifyFullChain: true` skips
+  the cache and always walks from genesis — the "deep verify" escape hatch.
+  Live-verified against real Postgres: first call full-walks (22 entries),
+  second call incrementally checks 0, forced-full-chain call re-walks all 22.
+- **DSR `type` filter.** `ListDSRRequestsParams` gained `type?: DSRType`,
+  implemented identically in `InMemoryConsentVaultStore` (a `.filter()`) and
+  `PrismaDSRRepository` (another `AND.push(...)` entry, matching the existing
+  pattern for `status`/`overdueOnly`).
+- **Session auth (`apps/api/src/auth/`).** `express-session` with an
+  in-memory `MemoryStore` — fine for this phase's single-admin, single-process
+  scope (explicitly *not* production-safe: sessions vanish on restart and
+  don't share state across instances; swapping in a Redis-backed store later
+  wouldn't touch anything else). The one admin user is seeded via
+  `ADMIN_USERNAME`/`ADMIN_PASSWORD_HASH` (bcrypt) env vars, not a DB table —
+  no multi-user/role model yet, per the brief. `SessionAuthGuard` is
+  registered app-wide via `APP_GUARD`, so every dashboard-facing endpoint is
+  protected by default; routes opt **out** individually with `@Public()`
+  (only `/auth/login` and `/auth/logout` use it) rather than each controller
+  having to remember to opt in. `GET /auth/me` is deliberately *not* public —
+  an unauthenticated request never reaches its handler at all, the guard
+  throws 401 first, which is exactly the "am I still logged in?" signal the
+  dashboard's session context needs. `main.ts` also gained `app.enableCors({
+  origin: CORS_ORIGIN, credentials: true })` — cookies require a specific
+  origin, not a wildcard, once `credentials: true` is set.
+- **New dashboard-facing endpoints.** `GET /consent-artifacts/:id/ledger`
+  (calls `ledger.listEntries({ refId: id })` — no interface change needed,
+  that method already existed); `GET /dsr-requests` (filters by
+  `type`/`status`/`overdueOnly`, then sorts by `dueAt` ascending — sorted in
+  the *controller*, not `listDSRRequests` itself, since changing that
+  method's existing `createdAt`-ascending default order could break other
+  callers, like the MCP tool and existing tests, that rely on it); `GET
+  /compliance/snapshot` (defaults to the last 90 days if `from`/`to` aren't
+  given); `GET /compliance/ledger-integrity` (wraps the incremental
+  `verifyLedgerIntegrity`, `?verifyFullChain=true` forces a deep verify);
+  `GET /compliance/breach-events` (the compliance snapshot's
+  `breachesLogged` is just a count — the dashboard's actual breach *log*
+  needed the real list, so this backs it via the already-existing
+  `listBreachEvents`).
+- **`apps/dashboard/`** — Vite + React 19 + TypeScript, `react-router-dom`
+  for routing, `@tanstack/react-query` for data fetching (its
+  `refetchInterval` option is the 30-second polling for the DSR queue and
+  compliance views — `VITE_POLL_INTERVAL_MS`, default 30000). Talks to
+  `apps/api`'s REST endpoints directly with `credentials: "include"` on every
+  fetch, **not** the MCP server — MCP is for agent/chat access, the
+  dashboard is a normal cookie-authenticated web client, per the brief.
+  `AuthProvider` treats a failed `GET /auth/me` (401, not logged in) as
+  normal query state, not an error to crash on; `RequireAuth` redirects to
+  `/login` (preserving the attempted path) whenever `username` is null.
+  Three views: `ConsentStatusView` (status/purpose filters; resolves
+  `principalId`/`purposeId` against `/principals`/`/purposes` client-side for
+  display since the list endpoint doesn't join them; clicking a row fetches
+  and shows its ledger history below the table), `DSRQueueView`
+  (type/status filters; overdue flag computed the same way the backend's
+  `overdueOnly` filter and compliance snapshot's `dsrOverdue` count already
+  do — `dueAt < now && status !== "resolved"` — rather than trusting a
+  stored `status === "overdue"` literal, since new DSR requests are never
+  automatically transitioned to that status as time passes; only the seed
+  fixture happens to have one hardcoded that way), `ComplianceView` (snapshot
+  stat tiles, the green/red ledger integrity badge with an incremental-vs-
+  full-walk label, and the breach log table).
+- **Domain types, not duplicated.** `apps/dashboard/src/lib/types.ts`
+  type-only re-exports the plain-interface entities from
+  `mock-store/types.ts` (erased entirely at build time, so it only needs
+  `tsc`'s ability to find the `.ts` file, never mock-store's own ESM/NodeNext
+  runtime resolution) — a dashboard-local duplicate would just drift.
+  *Not* re-exporting from `mock-store/repositories.ts`, though:
+  `LedgerIntegrityReport` there references `LedgerIntegrityBreak` from
+  `hashChain.ts`, which has a **runtime** `node:crypto` import — fine under
+  mock-store's own Node-targeted tsconfig, but the dashboard's
+  browser-targeted one has no `"node"` types, so resolving that module
+  fails. `ComplianceSnapshot`/`LedgerIntegrityReport` are small, stable
+  response shapes duplicated directly instead. Also: mock-store's entity
+  interfaces type dates as `Date`, accurate for the in-memory store but not
+  for what arrives over JSON (`apps/api` serializes every `Date` as an ISO
+  string) — a `Serialized<T>` mapped type produces `WireConsentArtifact`/
+  `WireConsentLedgerEntry`/`WireDSRRequest`/`WireBreachEvent` aliases so the
+  fetch layer's types match what's actually on the wire.
+- **Verified live**, not just typechecked: booted the real `apps/api`
+  server and the dashboard's Vite dev server together, then drove the whole
+  app through a real Chromium browser (Playwright) — unauthenticated access
+  redirects to `/login`; login sets the session cookie and lands on
+  `/consents`; the consent table resolves principal/purpose names and a row
+  click loads its real ledger history; the DSR queue sorts by `dueAt` and
+  flags the seeded overdue request; the compliance view shows a green
+  "INTACT" badge (`full chain walk, checked 22 entries`), correct stat
+  tiles, and the real breach log entry; sign-out clears the session and a
+  direct navigation to a protected route while logged out bounces back to
+  `/login`.
+
+Not built yet (later phases per the spec): breach notice drafting, DSR SLA
+escalation reminders, weekly compliance report export (Phase 7).
 
 ### Design decisions made without a spec answer
 
@@ -330,6 +433,23 @@ chain until Phase 4 built one. See the Phase 5 section above for the
 algorithm, the expand/backfill/contract migration sequence, and a real bug
 the backfill design caught along the way.
 
+**`GET /compliance/breach-events` (Phase 6 addition).** The spec's
+compliance dashboard asks for a "breach log," but `ComplianceSnapshot`
+(the same shape `get_compliance_snapshot` returns) only has
+`breachesLogged: number` — a count, not the entries themselves. Rather than
+render just a number where the brief implies an actual list, added this
+one small endpoint wrapping the already-existing `listBreachEvents`
+repository method (no interface change needed). If a count-only breach
+section was actually intended, this is a one-controller-method removal.
+
+**Sorting `GET /dsr-requests` by `dueAt` in the controller, not the
+repository.** `listDSRRequests` already had callers (the MCP tool,
+existing tests) depending on its `createdAt`-ascending default order —
+changing that default to satisfy the dashboard's "sorted by due_at
+ascending" requirement risked silently changing behavior those callers
+weren't asking for. Sorting the controller's response instead keeps the
+repository's own contract untouched.
+
 ## Running it
 
 `mcp-server/` and `jobs/` now run against the real backend (Phase 5
@@ -361,20 +481,35 @@ cp .env.example .env                    # adjust if you changed the compose cred
 npx prisma migrate dev                  # applies prisma/migrations/ (incl. the hash-chain columns), generates the client
 npm run prisma:seed                     # loads mock-store's exact seed data via Prisma, hash-chained
 npm run prisma:backfill-hash-chain      # no-op on a fresh seed (already chained) — for pre-Phase-5 data
-npm test                                # 19 Jest tests against the real database (--runInBand)
+npm test                                # 24 Jest tests against the real database (--runInBand)
 npm run typecheck
 
 npm start                     # nest build && node dist/apps/api/src/main.js
 ```
 
-Try it:
+**Auth setup (Phase 6).** `.env.example` also has `SESSION_SECRET`,
+`CORS_ORIGIN` (must match wherever `apps/dashboard`'s dev server runs, e.g.
+`http://localhost:5173`), `ADMIN_USERNAME`, and `ADMIN_PASSWORD_HASH` —
+generate the hash with:
 
 ```bash
-curl http://localhost:3000/principals/principal-1
-curl "http://localhost:3000/consent-artifacts?principalId=principal-1&purposeId=purpose-2"
-curl -X POST http://localhost:3000/consent-artifacts \
+node -e "console.log(require('bcrypt').hashSync('your-password', 10))"
+```
+
+Every endpoint except `POST /auth/login` and `POST /auth/logout` requires an
+authenticated session cookie now:
+
+```bash
+curl -c cookies.txt -X POST http://localhost:3000/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"username":"admin","password":"your-password"}'
+
+curl -b cookies.txt http://localhost:3000/principals/principal-1
+curl -b cookies.txt "http://localhost:3000/consent-artifacts?principalId=principal-1&purposeId=purpose-2"
+curl -b cookies.txt -X POST http://localhost:3000/consent-artifacts \
   -H "Content-Type: application/json" \
   -d '{"principalId":"principal-1","purposeId":"purpose-1","noticeVersion":"v2.0","language":"en"}'
+curl -b cookies.txt "http://localhost:3000/compliance/ledger-integrity"
 ```
 
 **Why `npm start` is `nest build && node dist/apps/api/src/main.js`, not
@@ -472,7 +607,22 @@ records that a human (via Claude Code's live MCP tool access) already
 created the real draft/event. Skipping straight to `confirm` without
 actually creating anything just puts a fabricated id on the ledger, so don't.
 
+### 5. apps/dashboard — React + Vite, needs `apps/api` running
+
+```bash
+cd ../apps/dashboard   # projects/consent-vault-manager/apps/dashboard
+npm install
+cp .env.example .env.local   # adjust VITE_API_URL if apps/api isn't on :3000
+npm run build                # tsc -b && vite build — typechecks + production bundle
+npm run dev                  # Vite dev server, defaults to http://localhost:5173
+```
+
+Make sure `apps/api`'s `CORS_ORIGIN` matches whatever origin the dashboard
+actually runs on (`http://localhost:5173` for the Vite dev server by
+default) — cookies won't round-trip cross-origin otherwise. Sign in with
+the `ADMIN_USERNAME`/password whose bcrypt hash you put in `apps/api/.env`.
+
 ## Next step
 
-Phase 6 — React dashboard (consent status, DSR queue, compliance snapshot)
-against the real `apps/api`, per the spec.
+Phase 7 — breach notice drafting, DSR SLA escalation reminders, weekly
+compliance report export, per the spec.
