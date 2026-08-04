@@ -10,6 +10,7 @@ import type {
   Processor,
   Purpose,
 } from "./types.js";
+import { addDays } from "./util.js";
 
 export interface SeedData {
   fiduciary: DataFiduciary;
@@ -30,6 +31,11 @@ const d = (iso: string) => new Date(iso);
  * bleed mutations into each other.
  */
 export function createSeedData(): SeedData {
+  // Captured once, used only for the DSR requests below — see the comment
+  // there on why those (and only those) are relative to real "now" rather
+  // than fixed calendar dates.
+  const now = new Date();
+
   const fiduciary: DataFiduciary = {
     id: "fiduciary-1",
     name: "LexEdu Technologies Pvt. Ltd.",
@@ -130,11 +136,24 @@ export function createSeedData(): SeedData {
     { id: "processor-6", name: "ChurnSignal ML Platform", purposeId: "purpose-4", status: "active", contactEmail: "privacy@churnsignal.example", createdAt: d("2023-02-01"), updatedAt: d("2023-02-01") },
   ];
 
+  // Unlike every other date in this file, these three are relative to real
+  // "now" (captured once, above) rather than fixed calendar dates. DSR
+  // overdue-ness is computed live from `dueAt < now` (mock-store's
+  // listDSRRequests, PrismaDSRRepository, and the dashboard all do this —
+  // see Phase 6's README notes on why a stored "overdue" literal isn't
+  // trusted) — so a fixed dueAt only reads as "overdue" or "open" for as
+  // long as the real clock stays on the same side of it. Every prior
+  // version of this seed used fixed dates here and drifted: dsr-1's fixed
+  // due date was eventually reached by the real clock and silently flipped
+  // "open" to also-overdue, breaking every test and demo that assumed
+  // exactly one overdue request. Computing from `now` makes this correct
+  // by construction, forever, regardless of which day this file happens to
+  // run on.
   const dsrRequests: DSRRequest[] = [
-    { id: "dsr-1", principalId: "principal-2", type: "access", submittedAt: d("2026-07-05"), dueAt: d("2026-08-04"), status: "open", createdAt: d("2026-07-05") },
-    // Overdue: dueAt is before "today" (2026-07-19) and never resolved.
-    { id: "dsr-2", principalId: "principal-5", type: "erasure", submittedAt: d("2026-06-01"), dueAt: d("2026-07-01"), status: "overdue", createdAt: d("2026-06-01") },
-    { id: "dsr-3", principalId: "principal-6", type: "correction", submittedAt: d("2026-07-15"), dueAt: d("2026-08-14"), status: "open", createdAt: d("2026-07-15") },
+    { id: "dsr-1", principalId: "principal-2", type: "access", submittedAt: addDays(now, -14), dueAt: addDays(now, 15), status: "open", createdAt: addDays(now, -14) },
+    // The one overdue request: dueAt is comfortably in the past and never resolved.
+    { id: "dsr-2", principalId: "principal-5", type: "erasure", submittedAt: addDays(now, -48), dueAt: addDays(now, -18), status: "overdue", createdAt: addDays(now, -48) },
+    { id: "dsr-3", principalId: "principal-6", type: "correction", submittedAt: addDays(now, -4), dueAt: addDays(now, 26), status: "open", createdAt: addDays(now, -4) },
   ];
 
   const breachEvents: BreachEvent[] = [

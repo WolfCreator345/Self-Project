@@ -502,6 +502,27 @@ live against the real Postgres-backed MCP server: creating against a
 consent-basis purpose succeeds, against `purpose-3` comes back `isError:
 true` with the message above.
 
+**Fixed: the DSR seed data's date drift.** `mock-store/seed.ts`'s three
+seeded `DSRRequest`s used fixed calendar dates (`dueAt: d("2026-08-04")`
+etc.) chosen once, on the day this seed was authored, to produce exactly
+one overdue request (`dsr-2`). But `dueAt < now` is computed live —
+`listDSRRequests({ overdueOnly: true })` in both `InMemoryConsentVaultStore`
+and `PrismaDSRRepository`, plus the dashboard's own overdue flag, all
+recompute it on every read rather than trusting a stored status literal
+(intentionally — see Phase 6's README notes above). That means a fixed
+`dueAt` only reads as "not yet overdue" for as long as the real clock
+stays before it: `dsr-1`'s fixed due date was eventually reached, silently
+flipping a second request to overdue and breaking every test and demo that
+assumed exactly one. The three DSR dates are now computed relative to real
+`now` (captured once at the top of `createSeedData()`) instead of fixed
+calendar dates — `dsr-2` stays ~18 days overdue, `dsr-1`/`dsr-3` stay 15/26
+days out, forever, regardless of which day the seed actually runs on. This
+is deliberately *not* how any other date in the seed file works — consent
+artifacts' `status` only changes via the expiry sweep job actually running,
+so a fixed `expiresAt` in the past is a stable, intentional fixture (e.g.
+`consent-12`, seeded stale on purpose so the sweep has something to do on
+its first tick), not a source of drift.
+
 ### Design decisions made without a spec answer
 
 The spec's domain model lists 7 entities but only 3 repositories. This
