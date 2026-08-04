@@ -4,12 +4,13 @@ Two standalone deliverables for pitching this project — not part of the
 running system, not covered by its test suites, and not something
 `npm test`/`npm run typecheck` touches.
 
-- **`consent-vault-manager-pitch.pptx`** — a 13-slide deck: the DPDP Act
+- **`consent-vault-manager-pitch.pptx`** — a 14-slide deck: the DPDP Act
   compliance problem, what the system automates, the architecture, the
   lawful-basis distinction (consent vs. legitimate use) and how it's
   enforced, the hash-chained audit ledger, the human-in-the-loop
-  draft-then-confirm workflow, real dashboard screenshots, build/test
-  stats, tech stack, and an 8-phase status timeline.
+  draft-then-confirm workflow, real dashboard screenshots, multi-tenant +
+  RBAC (real login/role-management screenshots proving tenant isolation),
+  build/test stats, tech stack, and a 9-phase status timeline.
 - **`consent-vault-manager-landing.html`** — a single self-contained HTML
   page covering the same ground in a "register of record" visual style.
   Open it directly in a browser; every asset (font, screenshots) is
