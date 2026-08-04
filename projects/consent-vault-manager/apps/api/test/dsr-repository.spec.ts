@@ -55,4 +55,16 @@ describe("PrismaDSRRepository", () => {
     const after = await ledger.listEntries();
     expect(after.length).toBe(before.length + 1);
   });
+
+  describe("Multi-tenant (Phase 8)", () => {
+    it("derives a new DSR request's fiduciaryId from its principal", async () => {
+      const request = await dsrRepository.createDSRRequest({ principalId: "principal-10", type: "erasure" });
+      expect(request.fiduciaryId).toBe("fiduciary-2");
+    });
+
+    it("scopes listDSRRequests by fiduciary", async () => {
+      const requestsB = await dsrRepository.listDSRRequests({ fiduciaryId: "fiduciary-2" });
+      expect(requestsB.map((r) => r.id)).toEqual(["dsr-4"]);
+    });
+  });
 });

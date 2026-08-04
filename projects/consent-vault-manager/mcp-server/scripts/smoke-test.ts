@@ -84,8 +84,10 @@ async function main() {
     arguments: {},
   });
   const allOpenData = textOf(allOpen) as Array<{ id: string }>;
-  assert.equal(allOpenData.length, 3);
-  console.log("✓ list_open_dsr_requests() returns all 3 seeded (unresolved) requests");
+  // 4 unresolved: dsr-1..dsr-3 (fiduciary-1) + dsr-4 (fiduciary-2, Phase 8) —
+  // mcp-server stays tenant-unscoped by design, so it sees both fiduciaries.
+  assert.equal(allOpenData.length, 4);
+  console.log("✓ list_open_dsr_requests() returns all 4 seeded (unresolved) requests across both fiduciaries");
 
   // create_consent_record
   const created = await client.callTool({
@@ -181,8 +183,10 @@ async function main() {
   const snapshotData = textOf(snapshot) as { consentsGranted: number; dsrOverdue: number; breachesLogged: number };
   assert.ok(snapshotData.consentsGranted > 0);
   assert.ok(snapshotData.dsrOverdue >= 1);
-  // 1 seeded (breach-1) + the 2 report_breach_event calls just made above.
-  assert.equal(snapshotData.breachesLogged, 3);
+  // 2 seeded (breach-1, breach-2 — Phase 8 added a second fiduciary's
+  // breach) + the 2 report_breach_event calls just made above. mcp-server
+  // stays tenant-unscoped by design, so this aggregates across both.
+  assert.equal(snapshotData.breachesLogged, 4);
   console.log("✓ get_compliance_snapshot aggregates consents, DSRs, and breaches");
 
   // get_compliance_snapshot — bad input surfaces as a tool error

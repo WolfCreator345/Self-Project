@@ -8,8 +8,8 @@ import type {
   DateRange,
   LedgerIntegrityReport,
   LedgerRepository,
+  ListBreachEventsParams,
   ListLedgerEntriesParams,
-  PageParams,
 } from "../../../../mock-store/repositories";
 import type { BreachEvent, ConsentLedgerEntry } from "../../../../mock-store/types";
 import { computeLedgerEntryHash, LEDGER_GENESIS_HASH, PENDING_HASH_SENTINEL, verifyChain } from "./hash-chain";
@@ -90,14 +90,31 @@ export class PrismaLedgerRepository implements LedgerRepository {
   }
 
   async createBreachEvent(input: CreateBreachEventInput): Promise<BreachEvent> {
-    const row = await this.prisma.breachEvent.create({ data: input });
+    const affectedPurposeIds = input.affectedPurposeIds ?? [];
+    // Phase 8: derive fiduciaryId the same way mock-store/store.ts does —
+    // from the first affected purpose, falling back to the platform's
+    // primary fiduciary when there's no purpose to derive from. See
+    // BreachEvent's doc comment in mock-store/types.ts.
+    let fiduciaryId: string;
+    const firstPurpose = affectedPurposeIds[0]
+      ? await this.prisma.purpose.findUnique({ where: { id: affectedPurposeIds[0] } })
+      : null;
+    if (firstPurpose) {
+      fiduciaryId = firstPurpose.fiduciaryId;
+    } else {
+      const primary = await this.prisma.dataFiduciary.findFirstOrThrow({ orderBy: { createdAt: "asc" } });
+      fiduciaryId = primary.id;
+    }
+
+    const row = await this.prisma.breachEvent.create({ data: { ...input, fiduciaryId, affectedPurposeIds } });
     const event = toDomainBreachEvent(row);
     await this.appendEntry({ entryType: "breach_logged", refId: event.id, detail: { severity: event.severity } });
     return event;
   }
 
-  async listBreachEvents(params?: PageParams): Promise<BreachEvent[]> {
+  async listBreachEvents(params?: ListBreachEventsParams): Promise<BreachEvent[]> {
     const rows = await this.prisma.breachEvent.findMany({
+      where: { fiduciaryId: params?.fiduciaryId },
       orderBy: { createdAt: "asc" },
       take: params?.limit,
       skip: params?.offset,
@@ -110,19 +127,25 @@ export class PrismaLedgerRepository implements LedgerRepository {
     return row ? toDomainBreachEvent(row) : null;
   }
 
-  async getComplianceSnapshot(dateRange: DateRange): Promise<ComplianceSnapshot> {
+  /**
+   * fiduciaryId (Phase 8) is omitted by mcp-server's get_compliance_snapshot
+   * call (it stays tenant-unscoped) — aggregates across every tenant then.
+   * apps/api's ComplianceController passes the caller's fiduciaryId to scope
+   * the snapshot to their tenant alone.
+   */
+  async getComplianceSnapshot(dateRange: DateRange, fiduciaryId?: string): Promise<ComplianceSnapshot> {
     const { from, to } = dateRange;
     const now = new Date();
 
     const [consentsGranted, consentsWithdrawn, consentsExpired, dsrOpen, dsrOverdue, dsrResolved, breachesLogged] =
       await Promise.all([
-        this.prisma.consentArtifact.count({ where: { grantedAt: { gte: from, lte: to } } }),
-        this.prisma.consentArtifact.count({ where: { withdrawnAt: { gte: from, lte: to } } }),
-        this.prisma.consentArtifact.count({ where: { status: "expired", expiresAt: { gte: from, lte: to } } }),
-        this.prisma.dSRRequest.count({ where: { status: { in: ["open", "in_progress"] } } }),
-        this.prisma.dSRRequest.count({ where: { status: { not: "resolved" }, dueAt: { lt: now } } }),
-        this.prisma.dSRRequest.count({ where: { status: "resolved", resolvedAt: { gte: from, lte: to } } }),
-        this.prisma.breachEvent.count({ where: { detectedAt: { gte: from, lte: to } } }),
+        this.prisma.consentArtifact.count({ where: { grantedAt: { gte: from, lte: to }, fiduciaryId } }),
+        this.prisma.consentArtifact.count({ where: { withdrawnAt: { gte: from, lte: to }, fiduciaryId } }),
+        this.prisma.consentArtifact.count({ where: { status: "expired", expiresAt: { gte: from, lte: to }, fiduciaryId } }),
+        this.prisma.dSRRequest.count({ where: { status: { in: ["open", "in_progress"] }, fiduciaryId } }),
+        this.prisma.dSRRequest.count({ where: { status: { not: "resolved" }, dueAt: { lt: now }, fiduciaryId } }),
+        this.prisma.dSRRequest.count({ where: { status: "resolved", resolvedAt: { gte: from, lte: to }, fiduciaryId } }),
+        this.prisma.breachEvent.count({ where: { detectedAt: { gte: from, lte: to }, fiduciaryId } }),
       ]);
 
     return {

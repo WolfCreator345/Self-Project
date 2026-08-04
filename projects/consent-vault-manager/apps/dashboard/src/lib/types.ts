@@ -23,8 +23,9 @@ export type {
   DSRType,
   LawfulBasis,
   Purpose,
+  Role,
 } from "../../../../mock-store/types";
-import type { BreachEvent, ConsentArtifact, ConsentLedgerEntry, DSRRequest } from "../../../../mock-store/types";
+import type { BreachEvent, ConsentArtifact, ConsentLedgerEntry, DSRRequest, User } from "../../../../mock-store/types";
 
 /**
  * mock-store's entity interfaces type dates as `Date`, which is accurate for
@@ -39,6 +40,8 @@ export type WireConsentArtifact = Serialized<ConsentArtifact>;
 export type WireConsentLedgerEntry = Serialized<ConsentLedgerEntry>;
 export type WireDSRRequest = Serialized<DSRRequest>;
 export type WireBreachEvent = Serialized<BreachEvent>;
+/** Phase 8. Never carries passwordHash — UsersController strips it before responding. */
+export type WireUser = Omit<Serialized<User>, "passwordHash">;
 
 export interface DateRange {
   from: string;

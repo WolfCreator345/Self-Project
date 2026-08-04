@@ -12,12 +12,13 @@ import {
 describe("seed data", () => {
   it("seeds the expected entity counts", async () => {
     const store = createSeededStore();
-    assert.equal((await store.listPrincipals()).length, 8);
-    assert.equal((await store.listPurposes()).length, 4);
-    assert.equal((await store.listConsentArtifacts()).length, 12);
-    assert.equal((await store.listDSRRequests()).length, 3);
-    assert.equal((await store.listBreachEvents()).length, 1);
+    assert.equal((await store.listPrincipals()).length, 10);
+    assert.equal((await store.listPurposes()).length, 5);
+    assert.equal((await store.listConsentArtifacts()).length, 14);
+    assert.equal((await store.listDSRRequests()).length, 4);
+    assert.equal((await store.listBreachEvents()).length, 2);
     assert.equal((await store.listProcessors()).length, 6);
+    assert.equal((await store.listFiduciaries()).length, 2);
   });
 
   it("seeds a mix of consent statuses", async () => {
@@ -50,21 +51,23 @@ describe("ConsentRepository", () => {
     const store = createSeededStore();
 
     const principal = await store.createPrincipal({
+      fiduciaryId: "fiduciary-1",
       name: "Neha Kapoor",
       email: "neha.kapoor@example.com",
       isMinor: false,
     });
     assert.ok(principal.id);
     assert.equal(await store.findPrincipalById(principal.id).then((p) => p?.email), "neha.kapoor@example.com");
-    assert.equal((await store.listPrincipals()).length, 9);
+    assert.equal((await store.listPrincipals()).length, 11);
 
     const purpose = await store.createPurpose({
+      fiduciaryId: "fiduciary-1",
       description: "Newsletter subscription",
       lawfulBasis: "consent",
       retentionPeriodDays: 400,
     });
     assert.ok(purpose.id);
-    assert.equal((await store.listPurposes()).length, 5);
+    assert.equal((await store.listPurposes()).length, 6);
   });
 
   it("check_consent_status returns the artifact for a known principal/purpose pair", async () => {
@@ -174,7 +177,7 @@ describe("LedgerRepository", () => {
     });
     assert.ok(snapshot.consentsGranted > 0);
     assert.ok(snapshot.dsrOverdue >= 1);
-    assert.equal(snapshot.breachesLogged, 1);
+    assert.equal(snapshot.breachesLogged, 2);
   });
 
   it("seeds breach-1 with a high severity and its affected purpose", async () => {
@@ -296,6 +299,153 @@ describe("LedgerRepository", () => {
     assert.equal(report.intact, true);
     assert.equal(report.verifiedFullChain, true);
     assert.equal(report.entriesChecked, entries.length);
+  });
+});
+
+describe("Multi-tenant + RBAC (Phase 8)", () => {
+  it("scopes principals, purposes, consent artifacts, DSR requests, and breach events by fiduciary", async () => {
+    const store = createSeededStore();
+
+    const principalsB = await store.listPrincipals({ fiduciaryId: "fiduciary-2" });
+    assert.deepEqual(principalsB.map((p) => p.id).sort(), ["principal-10", "principal-9"]);
+
+    const purposesB = await store.listPurposes({ fiduciaryId: "fiduciary-2" });
+    assert.deepEqual(purposesB.map((p) => p.id), ["purpose-5"]);
+
+    const consentsB = await store.listConsentArtifacts({ fiduciaryId: "fiduciary-2" });
+    assert.deepEqual(consentsB.map((c) => c.id).sort(), ["consent-13", "consent-14"]);
+
+    const dsrsB = await store.listDSRRequests({ fiduciaryId: "fiduciary-2" });
+    assert.deepEqual(dsrsB.map((r) => r.id), ["dsr-4"]);
+
+    const breachesA = await store.listBreachEvents({ fiduciaryId: "fiduciary-1" });
+    const breachesB = await store.listBreachEvents({ fiduciaryId: "fiduciary-2" });
+    assert.deepEqual(breachesA.map((b) => b.id), ["breach-1"]);
+    assert.deepEqual(breachesB.map((b) => b.id), ["breach-2"]);
+  });
+
+  it("scopes the compliance snapshot by fiduciary — one tenant's breach never inflates another's count", async () => {
+    const store = createSeededStore();
+    const dateRange = { from: new Date("2026-01-01"), to: new Date("2026-12-31") };
+
+    const snapshotA = await store.getComplianceSnapshot(dateRange, "fiduciary-1");
+    const snapshotB = await store.getComplianceSnapshot(dateRange, "fiduciary-2");
+    const unscoped = await store.getComplianceSnapshot(dateRange);
+
+    assert.equal(snapshotA.breachesLogged, 1);
+    assert.equal(snapshotB.breachesLogged, 1);
+    assert.equal(unscoped.breachesLogged, 2);
+  });
+
+  it("derives a new consent artifact's fiduciaryId from its purpose, without being told", async () => {
+    const store = createSeededStore();
+    const artifact = await store.createConsentArtifact({
+      principalId: "principal-9",
+      purposeId: "purpose-5",
+      noticeVersion: "v1.0",
+      language: "en",
+    });
+    assert.equal(artifact.fiduciaryId, "fiduciary-2");
+  });
+
+  it("rejects a consent artifact linking a principal and purpose from different fiduciaries", async () => {
+    const store = createSeededStore();
+    await assert.rejects(
+      () =>
+        store.createConsentArtifact({
+          principalId: "principal-1", // fiduciary-1
+          purposeId: "purpose-5", // fiduciary-2
+          noticeVersion: "v1.0",
+          language: "en",
+        }),
+      /different fiduciaries/,
+    );
+  });
+
+  it("derives a new DSR request's fiduciaryId from its principal, without being told", async () => {
+    const store = createSeededStore();
+    const request = await store.createDSRRequest({ principalId: "principal-10", type: "erasure" });
+    assert.equal(request.fiduciaryId, "fiduciary-2");
+  });
+
+  it("derives a new breach event's fiduciaryId from its first affected purpose", async () => {
+    const store = createSeededStore();
+    const breach = await store.createBreachEvent({
+      description: "test breach",
+      detectedAt: new Date(),
+      dpbNotifyDueAt: new Date(),
+      severity: "low",
+      affectedPurposeIds: ["purpose-5"],
+    });
+    assert.equal(breach.fiduciaryId, "fiduciary-2");
+  });
+
+  it("falls back to the platform's primary fiduciary when a breach event names no affected purpose", async () => {
+    const store = createSeededStore();
+    const breach = await store.createBreachEvent({
+      description: "test breach, no purposes named",
+      detectedAt: new Date(),
+      dpbNotifyDueAt: new Date(),
+      severity: "low",
+    });
+    const primary = await store.getFiduciary();
+    assert.equal(breach.fiduciaryId, primary.id);
+  });
+
+  it("lists and finds fiduciaries", async () => {
+    const store = createSeededStore();
+    const all = await store.listFiduciaries();
+    assert.equal(all.length, 2);
+    const found = await store.findFiduciaryById("fiduciary-2");
+    assert.equal(found?.name, "Northbridge FinServ Pvt. Ltd.");
+    assert.equal(await store.findFiduciaryById("no-such-fiduciary"), null);
+  });
+
+  describe("UserRepository", () => {
+    it("seeds three roles per fiduciary, listed only within that fiduciary", async () => {
+      const store = createSeededStore();
+      const usersA = await store.listUsers("fiduciary-1");
+      const usersB = await store.listUsers("fiduciary-2");
+      assert.deepEqual(usersA.map((u) => u.role).sort(), ["admin", "dpo", "viewer"]);
+      assert.deepEqual(usersB.map((u) => u.role).sort(), ["admin", "dpo", "viewer"]);
+      assert.ok(usersA.every((u) => u.fiduciaryId === "fiduciary-1"));
+      assert.ok(usersB.every((u) => u.fiduciaryId === "fiduciary-2"));
+    });
+
+    it("finds a seeded user by username with the right role", async () => {
+      const store = createSeededStore();
+      const user = await store.findUserByUsername("dpo@lexedu.example");
+      assert.equal(user?.role, "dpo");
+      assert.equal(user?.fiduciaryId, "fiduciary-1");
+    });
+
+    it("creates a user, rejects a duplicate username, and updates a user's role", async () => {
+      const store = createSeededStore();
+      const created = await store.createUser({
+        fiduciaryId: "fiduciary-2",
+        username: "newhire@northbridge.example",
+        passwordHash: "fake-hash",
+        role: "viewer",
+      });
+      assert.equal(created.role, "viewer");
+      assert.equal((await store.listUsers("fiduciary-2")).length, 4);
+
+      await assert.rejects(
+        () => store.createUser({ fiduciaryId: "fiduciary-2", username: "newhire@northbridge.example", passwordHash: "x", role: "dpo" }),
+        /already taken/,
+      );
+
+      const promoted = await store.updateUserRole(created.id, "dpo");
+      assert.equal(promoted.role, "dpo");
+      assert.equal((await store.findUserById(created.id))?.role, "dpo");
+    });
+
+    it("rejects creating a user against an unknown fiduciary", async () => {
+      const store = createSeededStore();
+      await assert.rejects(() =>
+        store.createUser({ fiduciaryId: "no-such-fiduciary", username: "ghost@example.com", passwordHash: "x", role: "admin" }),
+      );
+    });
   });
 });
 

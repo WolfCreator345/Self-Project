@@ -7,9 +7,10 @@ import { RequireAuth } from "./auth/RequireAuth";
 import { ComplianceView } from "./views/ComplianceView";
 import { ConsentStatusView } from "./views/ConsentStatusView";
 import { DSRQueueView } from "./views/DSRQueueView";
+import { UsersView } from "./views/UsersView";
 
 function Layout({ children }: { children: ReactNode }) {
-  const { username, logout } = useAuth();
+  const { username, role, fiduciaryName, logout } = useAuth();
   const linkStyle = ({ isActive }: { isActive: boolean }) => ({
     marginRight: 16,
     fontWeight: isActive ? ("bold" as const) : ("normal" as const),
@@ -28,9 +29,21 @@ function Layout({ children }: { children: ReactNode }) {
           <NavLink to="/compliance" style={linkStyle}>
             Compliance
           </NavLink>
+          {/* Phase 8: only an admin can manage their fiduciary's team — a
+              dpo/viewer would just get a 403 from every request on this
+              page, so the link itself is hidden rather than leading
+              somewhere useless. */}
+          {role === "admin" && (
+            <NavLink to="/users" style={linkStyle}>
+              Team
+            </NavLink>
+          )}
         </nav>
-        <div style={{ fontSize: 14 }}>
-          {username} — <button onClick={() => void logout()}>Sign out</button>
+        <div style={{ fontSize: 14, textAlign: "right" }}>
+          <div>
+            {username} <span style={{ color: "#888" }}>({role})</span> — <button onClick={() => void logout()}>Sign out</button>
+          </div>
+          <div style={{ color: "#888", fontSize: 12 }}>{fiduciaryName}</div>
         </div>
       </header>
       {children}
@@ -52,6 +65,7 @@ function App() {
                 <Route path="/consents" element={<ConsentStatusView />} />
                 <Route path="/dsr" element={<DSRQueueView />} />
                 <Route path="/compliance" element={<ComplianceView />} />
+                <Route path="/users" element={<UsersView />} />
               </Routes>
             </Layout>
           </RequireAuth>

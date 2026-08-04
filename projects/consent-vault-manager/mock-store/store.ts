@@ -10,15 +10,18 @@ import type {
   CreateDSRRequestInput,
   CreatePrincipalInput,
   CreatePurposeInput,
+  CreateUserInput,
   DateRange,
   DSRRepository,
   LedgerIntegrityReport,
   LedgerRepository,
+  ListBreachEventsParams,
   ListConsentArtifactsParams,
   ListDSRRequestsParams,
   ListLedgerEntriesParams,
   ListProcessorsParams,
   PageParams,
+  UserRepository,
 } from "./repositories.js";
 import type {
   BreachEvent,
@@ -30,6 +33,8 @@ import type {
   DSRStatus,
   Processor,
   Purpose,
+  Role,
+  User,
 } from "./types.js";
 import type { SeedData } from "./seed.js";
 import { addDays, paginate } from "./util.js";
@@ -38,21 +43,23 @@ import { addDays, paginate } from "./util.js";
 const DSR_SLA_DAYS = 30;
 
 /**
- * In-memory implementation of ConsentRepository, DSRRepository, and
- * LedgerRepository. A single class backs all three so operations like
- * getComplianceSnapshot can read across consent/DSR/ledger data without
- * the interfaces themselves needing cross-repository references — a real
- * Postgres-backed implementation would do the equivalent with joined
- * queries or injected services.
+ * In-memory implementation of ConsentRepository, DSRRepository,
+ * LedgerRepository, and UserRepository (Phase 8). A single class backs all
+ * four so operations like getComplianceSnapshot can read across consent/
+ * DSR/ledger data without the interfaces themselves needing cross-
+ * repository references — a real Postgres-backed implementation would do
+ * the equivalent with joined queries or injected services.
  */
-export class InMemoryConsentVaultStore implements ConsentRepository, DSRRepository, LedgerRepository {
+export class InMemoryConsentVaultStore implements ConsentRepository, DSRRepository, LedgerRepository, UserRepository {
   private readonly fiduciary: DataFiduciary;
+  private readonly fiduciaries = new Map<string, DataFiduciary>();
   private readonly principals = new Map<string, DataPrincipal>();
   private readonly purposes = new Map<string, Purpose>();
   private readonly consentArtifacts = new Map<string, ConsentArtifact>();
   private readonly dsrRequests = new Map<string, DSRRequest>();
   private readonly breachEvents = new Map<string, BreachEvent>();
   private readonly processors = new Map<string, Processor>();
+  private readonly users = new Map<string, User>();
   private readonly ledgerEntries: ConsentLedgerEntry[] = [];
   private sequence = 0;
   /** Hash of the most recently appended ledger entry, or genesis if none yet. */
@@ -62,12 +69,14 @@ export class InMemoryConsentVaultStore implements ConsentRepository, DSRReposito
 
   constructor(seed: SeedData) {
     this.fiduciary = seed.fiduciary;
+    for (const f of seed.fiduciaries) this.fiduciaries.set(f.id, f);
     for (const p of seed.principals) this.principals.set(p.id, p);
     for (const p of seed.purposes) this.purposes.set(p.id, p);
     for (const c of seed.consentArtifacts) this.consentArtifacts.set(c.id, c);
     for (const req of seed.dsrRequests) this.dsrRequests.set(req.id, req);
     for (const b of seed.breachEvents) this.breachEvents.set(b.id, b);
     for (const p of seed.processors) this.processors.set(p.id, p);
+    for (const u of seed.users) this.users.set(u.id, u);
     for (const entry of seed.ledgerEntries) this.ledgerEntries.push(entry);
     this.sequence = seed.ledgerEntries.length;
     const lastSeeded = seed.ledgerEntries.at(-1);
@@ -80,8 +89,18 @@ export class InMemoryConsentVaultStore implements ConsentRepository, DSRReposito
     return this.fiduciary;
   }
 
-  async listPrincipals(params?: PageParams): Promise<DataPrincipal[]> {
-    return paginate([...this.principals.values()], params);
+  async findFiduciaryById(id: string): Promise<DataFiduciary | null> {
+    return this.fiduciaries.get(id) ?? null;
+  }
+
+  async listFiduciaries(): Promise<DataFiduciary[]> {
+    return [...this.fiduciaries.values()];
+  }
+
+  async listPrincipals(params?: PageParams & { fiduciaryId?: string }): Promise<DataPrincipal[]> {
+    let items = [...this.principals.values()];
+    if (params?.fiduciaryId) items = items.filter((p) => p.fiduciaryId === params.fiduciaryId);
+    return paginate(items, params);
   }
 
   async findPrincipalById(id: string): Promise<DataPrincipal | null> {
@@ -89,13 +108,16 @@ export class InMemoryConsentVaultStore implements ConsentRepository, DSRReposito
   }
 
   async createPrincipal(input: CreatePrincipalInput): Promise<DataPrincipal> {
+    if (!this.fiduciaries.has(input.fiduciaryId)) throw new Error(`Unknown fiduciary: ${input.fiduciaryId}`);
     const principal: DataPrincipal = { id: randomUUID(), createdAt: new Date(), ...input };
     this.principals.set(principal.id, principal);
     return principal;
   }
 
-  async listPurposes(params?: PageParams): Promise<Purpose[]> {
-    return paginate([...this.purposes.values()], params);
+  async listPurposes(params?: PageParams & { fiduciaryId?: string }): Promise<Purpose[]> {
+    let items = [...this.purposes.values()];
+    if (params?.fiduciaryId) items = items.filter((p) => p.fiduciaryId === params.fiduciaryId);
+    return paginate(items, params);
   }
 
   async findPurposeById(id: string): Promise<Purpose | null> {
@@ -103,6 +125,7 @@ export class InMemoryConsentVaultStore implements ConsentRepository, DSRReposito
   }
 
   async createPurpose(input: CreatePurposeInput): Promise<Purpose> {
+    if (!this.fiduciaries.has(input.fiduciaryId)) throw new Error(`Unknown fiduciary: ${input.fiduciaryId}`);
     const purpose: Purpose = { id: randomUUID(), createdAt: new Date(), ...input };
     this.purposes.set(purpose.id, purpose);
     return purpose;
@@ -118,10 +141,20 @@ export class InMemoryConsentVaultStore implements ConsentRepository, DSRReposito
         `Purpose "${purpose.id}" is processed under "${purpose.lawfulBasis}" — consent cannot be recorded as its basis.`,
       );
     }
+    // Tenant integrity (Phase 8): a consent artifact can't straddle two
+    // fiduciaries. The principal and purpose it links must already agree —
+    // if they don't, something upstream (a bug, or a cross-tenant id typed
+    // in by hand) is trying to create a record with no single owner.
+    if (principal.fiduciaryId !== purpose.fiduciaryId) {
+      throw new Error(
+        `Principal "${principal.id}" (fiduciary ${principal.fiduciaryId}) and purpose "${purpose.id}" (fiduciary ${purpose.fiduciaryId}) belong to different fiduciaries.`,
+      );
+    }
 
     const now = new Date();
     const artifact: ConsentArtifact = {
       id: randomUUID(),
+      fiduciaryId: purpose.fiduciaryId,
       principalId: input.principalId,
       purposeId: input.purposeId,
       status: "granted",
@@ -203,6 +236,7 @@ export class InMemoryConsentVaultStore implements ConsentRepository, DSRReposito
     if (params?.principalId) items = items.filter((c) => c.principalId === params.principalId);
     if (params?.purposeId) items = items.filter((c) => c.purposeId === params.purposeId);
     if (params?.status) items = items.filter((c) => c.status === params.status);
+    if (params?.fiduciaryId) items = items.filter((c) => c.fiduciaryId === params.fiduciaryId);
     return paginate(items, params);
   }
 
@@ -236,6 +270,7 @@ export class InMemoryConsentVaultStore implements ConsentRepository, DSRReposito
     const now = new Date();
     const request: DSRRequest = {
       id: randomUUID(),
+      fiduciaryId: principal.fiduciaryId,
       principalId: input.principalId,
       type: input.type,
       submittedAt: now,
@@ -266,6 +301,7 @@ export class InMemoryConsentVaultStore implements ConsentRepository, DSRReposito
     if (params?.status) items = items.filter((req) => req.status === params.status);
     if (params?.principalId) items = items.filter((req) => req.principalId === params.principalId);
     if (params?.type) items = items.filter((req) => req.type === params.type);
+    if (params?.fiduciaryId) items = items.filter((req) => req.fiduciaryId === params.fiduciaryId);
     return paginate(items, params);
   }
 
@@ -319,10 +355,24 @@ export class InMemoryConsentVaultStore implements ConsentRepository, DSRReposito
   }
 
   async createBreachEvent(input: CreateBreachEventInput): Promise<BreachEvent> {
+    const affectedPurposeIds = input.affectedPurposeIds ?? [];
+    // Phase 8: derive fiduciaryId from the first affected purpose (they're
+    // expected to share one fiduciary — report_breach_event doesn't ask the
+    // caller to state that, so this isn't cross-checked beyond "the first
+    // one resolves to a real purpose"). Falls back to the platform's
+    // primary fiduciary when there's no purpose to derive from at all —
+    // see BreachEvent's doc comment in types.ts.
+    let fiduciaryId = this.fiduciary.id;
+    if (affectedPurposeIds.length > 0) {
+      const firstPurpose = this.purposes.get(affectedPurposeIds[0]!);
+      if (firstPurpose) fiduciaryId = firstPurpose.fiduciaryId;
+    }
+
     const event: BreachEvent = {
       id: randomUUID(),
+      fiduciaryId,
       ...input,
-      affectedPurposeIds: input.affectedPurposeIds ?? [],
+      affectedPurposeIds,
       createdAt: new Date(),
     };
     this.breachEvents.set(event.id, event);
@@ -334,18 +384,26 @@ export class InMemoryConsentVaultStore implements ConsentRepository, DSRReposito
     return event;
   }
 
-  async listBreachEvents(params?: PageParams): Promise<BreachEvent[]> {
-    return paginate([...this.breachEvents.values()], params);
+  async listBreachEvents(params?: ListBreachEventsParams): Promise<BreachEvent[]> {
+    let items = [...this.breachEvents.values()];
+    if (params?.fiduciaryId) items = items.filter((b) => b.fiduciaryId === params.fiduciaryId);
+    return paginate(items, params);
   }
 
   async findBreachEventById(id: string): Promise<BreachEvent | null> {
     return this.breachEvents.get(id) ?? null;
   }
 
-  async getComplianceSnapshot(dateRange: DateRange): Promise<ComplianceSnapshot> {
+  async getComplianceSnapshot(dateRange: DateRange, fiduciaryId?: string): Promise<ComplianceSnapshot> {
     const inRange = (date: Date) => date.getTime() >= dateRange.from.getTime() && date.getTime() <= dateRange.to.getTime();
-    const consents = [...this.consentArtifacts.values()];
-    const dsrs = [...this.dsrRequests.values()];
+    let consents = [...this.consentArtifacts.values()];
+    let dsrs = [...this.dsrRequests.values()];
+    let breaches = [...this.breachEvents.values()];
+    if (fiduciaryId) {
+      consents = consents.filter((c) => c.fiduciaryId === fiduciaryId);
+      dsrs = dsrs.filter((req) => req.fiduciaryId === fiduciaryId);
+      breaches = breaches.filter((b) => b.fiduciaryId === fiduciaryId);
+    }
     const now = new Date();
 
     return {
@@ -356,7 +414,7 @@ export class InMemoryConsentVaultStore implements ConsentRepository, DSRReposito
       dsrOpen: dsrs.filter((req) => req.status === "open" || req.status === "in_progress").length,
       dsrOverdue: dsrs.filter((req) => req.status !== "resolved" && req.dueAt.getTime() < now.getTime()).length,
       dsrResolved: dsrs.filter((req) => req.status === "resolved" && req.resolvedAt && inRange(req.resolvedAt)).length,
-      breachesLogged: [...this.breachEvents.values()].filter((b) => inRange(b.detectedAt)).length,
+      breachesLogged: breaches.filter((b) => inRange(b.detectedAt)).length,
     };
   }
 
@@ -395,5 +453,38 @@ export class InMemoryConsentVaultStore implements ConsentRepository, DSRReposito
       : toVerify.length;
 
     return { intact: result.intact, entriesChecked, verifiedFullChain: !checkpoint, firstBreak: result.firstBreak };
+  }
+
+  // ─── UserRepository (Phase 8) ────────────────────────────────────────────
+
+  async createUser(input: CreateUserInput): Promise<User> {
+    if (!this.fiduciaries.has(input.fiduciaryId)) throw new Error(`Unknown fiduciary: ${input.fiduciaryId}`);
+    const existing = await this.findUserByUsername(input.username);
+    if (existing) throw new Error(`Username "${input.username}" is already taken.`);
+
+    const user: User = { id: randomUUID(), createdAt: new Date(), ...input };
+    this.users.set(user.id, user);
+    return user;
+  }
+
+  async findUserByUsername(username: string): Promise<User | null> {
+    return [...this.users.values()].find((u) => u.username === username) ?? null;
+  }
+
+  async findUserById(id: string): Promise<User | null> {
+    return this.users.get(id) ?? null;
+  }
+
+  async listUsers(fiduciaryId: string, params?: PageParams): Promise<User[]> {
+    const items = [...this.users.values()].filter((u) => u.fiduciaryId === fiduciaryId);
+    return paginate(items, params);
+  }
+
+  async updateUserRole(id: string, role: Role): Promise<User> {
+    const user = this.users.get(id);
+    if (!user) throw new Error(`Unknown user: ${id}`);
+    const updated: User = { ...user, role };
+    this.users.set(id, updated);
+    return updated;
   }
 }

@@ -7,9 +7,9 @@ const prisma = new PrismaClient();
 async function main() {
   const seed = await seedDatabase(prisma);
   console.log(
-    `Seeded ${seed.principals.length} principals, ${seed.purposes.length} purposes, ` +
+    `Seeded ${seed.fiduciaries.length} fiduciaries, ${seed.principals.length} principals, ${seed.purposes.length} purposes, ` +
       `${seed.consentArtifacts.length} consent artifacts, ${seed.dsrRequests.length} DSR requests, ` +
-      `${seed.breachEvents.length} breach events, ${seed.processors.length} processors, ` +
+      `${seed.breachEvents.length} breach events, ${seed.processors.length} processors, ${seed.users.length} users, ` +
       `${seed.ledgerEntries.length} ledger entries.`,
   );
 }

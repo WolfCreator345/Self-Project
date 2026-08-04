@@ -12,13 +12,16 @@ import { PENDING_HASH_SENTINEL } from "../src/consent-vault/hash-chain";
 export async function seedDatabase(prisma: PrismaClient): Promise<ReturnType<typeof createSeedData>> {
   const seed = createSeedData();
 
-  await prisma.dataFiduciary.create({ data: seed.fiduciary });
+  // Phase 8: multiple fiduciaries (tenants) — fiduciaries[0] is the primary
+  // one everything else in this function used to assume was the only one.
+  for (const f of seed.fiduciaries) await prisma.dataFiduciary.create({ data: f });
   for (const p of seed.principals) await prisma.dataPrincipal.create({ data: p });
   for (const p of seed.purposes) await prisma.purpose.create({ data: p });
   for (const c of seed.consentArtifacts) await prisma.consentArtifact.create({ data: c });
   for (const req of seed.dsrRequests) await prisma.dSRRequest.create({ data: req });
   for (const b of seed.breachEvents) await prisma.breachEvent.create({ data: b });
   for (const p of seed.processors) await prisma.processor.create({ data: p });
+  for (const u of seed.users) await prisma.user.create({ data: u });
 
   // sequence is autoincrement in Postgres — omitted here, lines up with the
   // mock's intended order because buildLedgerEntries() already produced

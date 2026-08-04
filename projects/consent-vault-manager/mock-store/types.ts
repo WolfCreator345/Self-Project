@@ -5,6 +5,8 @@
 
 export interface DataPrincipal {
   id: string;
+  /** Which Data Fiduciary this principal's records belong to — Phase 8 multi-tenancy. */
+  fiduciaryId: string;
   name: string;
   email: string;
   phone?: string;
@@ -27,6 +29,8 @@ export type LawfulBasis = "consent" | "legitimate_use";
 
 export interface Purpose {
   id: string;
+  /** Which Data Fiduciary defines this purpose — Phase 8 multi-tenancy. */
+  fiduciaryId: string;
   description: string;
   lawfulBasis: LawfulBasis;
   /** How long an artifact under this purpose remains valid before it must be renewed. */
@@ -38,6 +42,15 @@ export type ConsentStatus = "granted" | "withdrawn" | "expired";
 
 export interface ConsentArtifact {
   id: string;
+  /**
+   * Which Data Fiduciary this consent belongs to — Phase 8 multi-tenancy.
+   * Always equal to purpose.fiduciaryId (and principal.fiduciaryId, which
+   * must match it); derived automatically at creation, never taken as
+   * caller input, so nothing that creates a ConsentArtifact — including
+   * mcp-server's create_consent_record, which stays tenant-unaware by
+   * design — needs to know this field exists.
+   */
+  fiduciaryId: string;
   principalId: string;
   purposeId: string;
   status: ConsentStatus;
@@ -92,6 +105,8 @@ export type DSRStatus = "open" | "in_progress" | "resolved" | "overdue";
 
 export interface DSRRequest {
   id: string;
+  /** Always equal to principal.fiduciaryId — derived automatically at creation. Phase 8 multi-tenancy. */
+  fiduciaryId: string;
   principalId: string;
   type: DSRType;
   submittedAt: Date;
@@ -105,6 +120,15 @@ export type BreachSeverity = "low" | "medium" | "high" | "critical";
 
 export interface BreachEvent {
   id: string;
+  /**
+   * Phase 8 multi-tenancy. Derived automatically at creation from the first
+   * entry in affectedPurposeIds' fiduciaryId; report_breach_event stays
+   * tenant-unaware by design, so when affectedPurposeIds is empty there's
+   * no purpose to derive from, and this falls back to the platform's
+   * primary DataFiduciary (the first one seeded) — a documented scope
+   * boundary, not a general-purpose tenant resolution mechanism.
+   */
+  fiduciaryId: string;
   description: string;
   detectedAt: Date;
   dpbNotifyDueAt: Date;
@@ -133,6 +157,8 @@ export type ProcessorStatus = "active" | "purge_pending" | "purged";
  */
 export interface Processor {
   id: string;
+  /** Always equal to purpose.fiduciaryId. Phase 8 multi-tenancy. No runtime creation path exists — set at seed time only. */
+  fiduciaryId: string;
   name: string;
   purposeId: string;
   status: ProcessorStatus;
@@ -140,4 +166,31 @@ export interface Processor {
   contactEmail: string;
   createdAt: Date;
   updatedAt: Date;
+}
+
+/**
+ * Phase 8: dashboard/API-side multi-tenancy and RBAC. Deliberately scoped to
+ * apps/api's session-authenticated surface only — mcp-server and jobs/ stay
+ * tenant-unaware (see the fiduciaryId derivation notes above), matching how
+ * they've always operated as trusted, single-operator tools rather than
+ * multi-tenant-aware ones.
+ *
+ * Three roles, each a strict superset of the one below it in read access:
+ * - "admin": everything "dpo" can do, plus user management (create users,
+ *   list/change roles) within their own fiduciary.
+ * - "dpo": read + write within their own fiduciary — create principals/
+ *   purposes, create/revoke consent artifacts. Cannot manage users.
+ * - "viewer": read-only within their own fiduciary. Every write endpoint
+ *   rejects a viewer with 403, regardless of what they're trying to change.
+ */
+export type Role = "admin" | "dpo" | "viewer";
+
+export interface User {
+  id: string;
+  fiduciaryId: string;
+  username: string;
+  /** bcrypt hash — never the plaintext password. */
+  passwordHash: string;
+  role: Role;
+  createdAt: Date;
 }

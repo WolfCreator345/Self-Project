@@ -41,13 +41,25 @@ export class PrismaConsentRepository implements ConsentRepository {
     private readonly ledger: PrismaLedgerRepository,
   ) {}
 
+  /** The platform's primary/first-seeded fiduciary — see mock-store's ConsentRepository.getFiduciary() doc comment. */
   async getFiduciary(): Promise<DataFiduciary> {
-    const row = await this.prisma.dataFiduciary.findFirstOrThrow();
+    const row = await this.prisma.dataFiduciary.findFirstOrThrow({ orderBy: { createdAt: "asc" } });
     return toDomainFiduciary(row);
   }
 
-  async listPrincipals(params?: PageParams): Promise<DataPrincipal[]> {
+  async findFiduciaryById(id: string): Promise<DataFiduciary | null> {
+    const row = await this.prisma.dataFiduciary.findUnique({ where: { id } });
+    return row ? toDomainFiduciary(row) : null;
+  }
+
+  async listFiduciaries(): Promise<DataFiduciary[]> {
+    const rows = await this.prisma.dataFiduciary.findMany({ orderBy: { createdAt: "asc" } });
+    return rows.map(toDomainFiduciary);
+  }
+
+  async listPrincipals(params?: PageParams & { fiduciaryId?: string }): Promise<DataPrincipal[]> {
     const rows = await this.prisma.dataPrincipal.findMany({
+      where: { fiduciaryId: params?.fiduciaryId },
       orderBy: { createdAt: "asc" },
       take: params?.limit,
       skip: params?.offset,
@@ -65,8 +77,9 @@ export class PrismaConsentRepository implements ConsentRepository {
     return toDomainPrincipal(row);
   }
 
-  async listPurposes(params?: PageParams): Promise<Purpose[]> {
+  async listPurposes(params?: PageParams & { fiduciaryId?: string }): Promise<Purpose[]> {
     const rows = await this.prisma.purpose.findMany({
+      where: { fiduciaryId: params?.fiduciaryId },
       orderBy: { createdAt: "asc" },
       take: params?.limit,
       skip: params?.offset,
@@ -94,10 +107,18 @@ export class PrismaConsentRepository implements ConsentRepository {
         `Purpose "${purpose.id}" is processed under "${purpose.lawfulBasis}" — consent cannot be recorded as its basis.`,
       );
     }
+    // Tenant integrity (Phase 8): mirrors mock-store/store.ts's check — a
+    // consent artifact can't straddle two fiduciaries.
+    if (principal.fiduciaryId !== purpose.fiduciaryId) {
+      throw new Error(
+        `Principal "${principal.id}" (fiduciary ${principal.fiduciaryId}) and purpose "${purpose.id}" (fiduciary ${purpose.fiduciaryId}) belong to different fiduciaries.`,
+      );
+    }
 
     const now = new Date();
     const row = await this.prisma.consentArtifact.create({
       data: {
+        fiduciaryId: purpose.fiduciaryId,
         principalId: input.principalId,
         purposeId: input.purposeId,
         status: "granted",
@@ -178,6 +199,7 @@ export class PrismaConsentRepository implements ConsentRepository {
         principalId: params?.principalId,
         purposeId: params?.purposeId,
         status: params?.status,
+        fiduciaryId: params?.fiduciaryId,
       },
       orderBy: { createdAt: "asc" },
       take: params?.limit,

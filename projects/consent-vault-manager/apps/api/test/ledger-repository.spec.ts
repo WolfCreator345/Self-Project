@@ -26,7 +26,7 @@ describe("PrismaLedgerRepository", () => {
     });
     expect(snapshot.consentsGranted).toBeGreaterThan(0);
     expect(snapshot.dsrOverdue).toBeGreaterThanOrEqual(1);
-    expect(snapshot.breachesLogged).toBe(1);
+    expect(snapshot.breachesLogged).toBe(2);
   });
 
   it("seeds ledger entries in increasing sequence order", async () => {
@@ -49,7 +49,7 @@ describe("PrismaLedgerRepository", () => {
 
     const after = await ledger.listEntries();
     expect(after.length).toBe(before.length + 1);
-    expect(await ledger.listBreachEvents()).toHaveLength(2);
+    expect(await ledger.listBreachEvents()).toHaveLength(3);
   });
 
   it("seeds (post-backfill) a valid hash chain, reported intact end to end", async () => {
@@ -136,5 +136,41 @@ describe("PrismaLedgerRepository", () => {
     expect(report.intact).toBe(true);
     expect(report.verifiedFullChain).toBe(true);
     expect(report.entriesChecked).toBe(entries.length);
+  });
+
+  describe("Multi-tenant (Phase 8)", () => {
+    it("scopes breach events and the compliance snapshot by fiduciary", async () => {
+      const breachesA = await ledger.listBreachEvents({ fiduciaryId: "fiduciary-1" });
+      const breachesB = await ledger.listBreachEvents({ fiduciaryId: "fiduciary-2" });
+      expect(breachesA.map((b) => b.id)).toEqual(["breach-1"]);
+      expect(breachesB.map((b) => b.id)).toEqual(["breach-2"]);
+
+      const dateRange = { from: new Date("2026-01-01"), to: new Date("2026-12-31") };
+      const snapshotA = await ledger.getComplianceSnapshot(dateRange, "fiduciary-1");
+      const snapshotB = await ledger.getComplianceSnapshot(dateRange, "fiduciary-2");
+      expect(snapshotA.breachesLogged).toBe(1);
+      expect(snapshotB.breachesLogged).toBe(1);
+    });
+
+    it("derives a new breach event's fiduciaryId from its first affected purpose", async () => {
+      const event = await ledger.createBreachEvent({
+        description: "Test breach with a purpose",
+        detectedAt: new Date(),
+        dpbNotifyDueAt: new Date(Date.now() + 72 * 60 * 60 * 1000),
+        severity: "medium",
+        affectedPurposeIds: ["purpose-5"],
+      });
+      expect(event.fiduciaryId).toBe("fiduciary-2");
+    });
+
+    it("falls back to the primary fiduciary when a breach event names no affected purpose", async () => {
+      const event = await ledger.createBreachEvent({
+        description: "Test breach with no purposes",
+        detectedAt: new Date(),
+        dpbNotifyDueAt: new Date(Date.now() + 72 * 60 * 60 * 1000),
+        severity: "low",
+      });
+      expect(event.fiduciaryId).toBe("fiduciary-1");
+    });
   });
 });

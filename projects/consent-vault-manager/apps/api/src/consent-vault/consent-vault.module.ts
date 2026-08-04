@@ -8,7 +8,9 @@ import { PrincipalsController } from "./principals.controller";
 import { PrismaConsentRepository } from "./prisma-consent.repository";
 import { PrismaDSRRepository } from "./prisma-dsr.repository";
 import { PrismaLedgerRepository } from "./prisma-ledger.repository";
+import { PrismaUserRepository } from "./prisma-user.repository";
 import { PurposesController } from "./purposes.controller";
+import { UsersController } from "./users.controller";
 
 @Module({
   controllers: [
@@ -17,8 +19,15 @@ import { PurposesController } from "./purposes.controller";
     ConsentArtifactsController,
     DSRRequestsController,
     ComplianceController,
+    UsersController,
   ],
-  providers: [PrismaConsentRepository, PrismaDSRRepository, PrismaLedgerRepository, PendingBreachNoticesService],
-  exports: [PrismaConsentRepository, PrismaDSRRepository, PrismaLedgerRepository],
+  providers: [
+    PrismaConsentRepository,
+    PrismaDSRRepository,
+    PrismaLedgerRepository,
+    PrismaUserRepository,
+    PendingBreachNoticesService,
+  ],
+  exports: [PrismaConsentRepository, PrismaDSRRepository, PrismaLedgerRepository, PrismaUserRepository],
 })
 export class ConsentVaultModule {}

@@ -1,4 +1,5 @@
-import { Controller, Get, Query } from "@nestjs/common";
+import { Controller, Get, Query, Req } from "@nestjs/common";
+import type { Request } from "express";
 
 import type { DSRStatus, DSRType } from "../../../../mock-store/types";
 import { PrismaDSRRepository } from "./prisma-dsr.repository";
@@ -10,6 +11,7 @@ export class DSRRequestsController {
 
   @Get()
   async list(
+    @Req() req: Request,
     @Query("type") type?: DSRType,
     @Query("status") status?: DSRStatus,
     @Query("overdueOnly") overdueOnly?: string,
@@ -17,6 +19,7 @@ export class DSRRequestsController {
     @Query("offset") offset?: string,
   ) {
     const requests = await this.dsrRepository.listDSRRequests({
+      fiduciaryId: req.session.fiduciaryId,
       type,
       status,
       overdueOnly: overdueOnly === "true",

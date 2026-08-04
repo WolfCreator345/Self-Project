@@ -15,6 +15,7 @@ import type {
   DSRRequest as PrismaDSRRequest,
   Processor as PrismaProcessor,
   Purpose as PrismaPurpose,
+  User as PrismaUser,
 } from "@prisma/client";
 
 import type {
@@ -26,6 +27,7 @@ import type {
   DSRRequest,
   Processor,
   Purpose,
+  User,
 } from "../../../../mock-store/types";
 
 export function toDomainFiduciary(row: PrismaDataFiduciary): DataFiduciary {
@@ -35,6 +37,7 @@ export function toDomainFiduciary(row: PrismaDataFiduciary): DataFiduciary {
 export function toDomainPrincipal(row: PrismaDataPrincipal): DataPrincipal {
   return {
     id: row.id,
+    fiduciaryId: row.fiduciaryId,
     name: row.name,
     email: row.email,
     phone: row.phone ?? undefined,
@@ -48,6 +51,7 @@ export function toDomainPrincipal(row: PrismaDataPrincipal): DataPrincipal {
 export function toDomainPurpose(row: PrismaPurpose): Purpose {
   return {
     id: row.id,
+    fiduciaryId: row.fiduciaryId,
     description: row.description,
     lawfulBasis: row.lawfulBasis,
     retentionPeriodDays: row.retentionPeriodDays,
@@ -58,6 +62,7 @@ export function toDomainPurpose(row: PrismaPurpose): Purpose {
 export function toDomainConsentArtifact(row: PrismaConsentArtifact): ConsentArtifact {
   return {
     id: row.id,
+    fiduciaryId: row.fiduciaryId,
     principalId: row.principalId,
     purposeId: row.purposeId,
     status: row.status,
@@ -88,6 +93,7 @@ export function toDomainLedgerEntry(row: PrismaConsentLedgerEntry): ConsentLedge
 export function toDomainDSRRequest(row: PrismaDSRRequest): DSRRequest {
   return {
     id: row.id,
+    fiduciaryId: row.fiduciaryId,
     principalId: row.principalId,
     type: row.type,
     submittedAt: row.submittedAt,
@@ -101,6 +107,7 @@ export function toDomainDSRRequest(row: PrismaDSRRequest): DSRRequest {
 export function toDomainBreachEvent(row: PrismaBreachEvent): BreachEvent {
   return {
     id: row.id,
+    fiduciaryId: row.fiduciaryId,
     description: row.description,
     detectedAt: row.detectedAt,
     dpbNotifyDueAt: row.dpbNotifyDueAt,
@@ -113,11 +120,23 @@ export function toDomainBreachEvent(row: PrismaBreachEvent): BreachEvent {
 export function toDomainProcessor(row: PrismaProcessor): Processor {
   return {
     id: row.id,
+    fiduciaryId: row.fiduciaryId,
     name: row.name,
     purposeId: row.purposeId,
     status: row.status,
     contactEmail: row.contactEmail,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
+  };
+}
+
+export function toDomainUser(row: PrismaUser): User {
+  return {
+    id: row.id,
+    fiduciaryId: row.fiduciaryId,
+    username: row.username,
+    passwordHash: row.passwordHash,
+    role: row.role,
+    createdAt: row.createdAt,
   };
 }

@@ -2,13 +2,20 @@ import { createContext, useContext, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { apiGet, apiPost, ApiError } from "../lib/api";
+import type { Role } from "../lib/types";
 
 interface Me {
   username: string;
+  role: Role;
+  fiduciaryId: string;
+  fiduciaryName: string;
 }
 
 interface AuthContextValue {
   username: string | null;
+  /** Phase 8: which role/tenant this session's user belongs to — null until /auth/me resolves. */
+  role: Role | null;
+  fiduciaryName: string | null;
   /** True while the initial /auth/me check (on page load) is in flight. */
   loading: boolean;
   login: (username: string, password: string) => Promise<void>;
@@ -63,6 +70,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const value: AuthContextValue = {
     username: meQuery.data?.username ?? null,
+    role: meQuery.data?.role ?? null,
+    fiduciaryName: meQuery.data?.fiduciaryName ?? null,
     loading: meQuery.isLoading,
     login,
     loginError,

@@ -1,21 +1,25 @@
 import { Injectable } from "@nestjs/common";
 import * as bcrypt from "bcrypt";
 
+import type { User } from "../../../../mock-store/types";
+import { PrismaUserRepository } from "../consent-vault/prisma-user.repository";
+
 /**
- * Single admin user, seeded via env vars (ADMIN_USERNAME/ADMIN_PASSWORD_HASH)
- * rather than stored in the database — there's no multi-user/role model yet
- * (Phase 6 spec explicitly defers that to future work), so a DB-backed User
- * table would be pure overhead right now.
+ * Phase 8: real, DB-backed multi-user auth — replaces the old single admin
+ * user seeded via env vars (ADMIN_USERNAME/ADMIN_PASSWORD_HASH). Every user
+ * belongs to exactly one DataFiduciary (tenant) and has a role (admin/dpo/
+ * viewer); see mock-store/types.ts's Role doc comment for the permission
+ * split.
  */
 @Injectable()
 export class AuthService {
-  async validateCredentials(username: string, password: string): Promise<boolean> {
-    const expectedUsername = process.env.ADMIN_USERNAME;
-    const expectedPasswordHash = process.env.ADMIN_PASSWORD_HASH;
-    if (!expectedUsername || !expectedPasswordHash) {
-      throw new Error("ADMIN_USERNAME and ADMIN_PASSWORD_HASH must be set in the environment");
-    }
-    if (username !== expectedUsername) return false;
-    return bcrypt.compare(password, expectedPasswordHash);
+  constructor(private readonly users: PrismaUserRepository) {}
+
+  /** Returns the authenticated User on success, or null on a bad username/password — never throws for that case. */
+  async validateCredentials(username: string, password: string): Promise<User | null> {
+    const user = await this.users.findUserByUsername(username);
+    if (!user) return null;
+    const valid = await bcrypt.compare(password, user.passwordHash);
+    return valid ? user : null;
   }
 }

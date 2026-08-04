@@ -32,6 +32,8 @@ import type {
   Processor,
   ProcessorStatus,
   Purpose,
+  Role,
+  User,
 } from "./types.js";
 
 export interface PageParams {
@@ -52,6 +54,8 @@ export interface ListConsentArtifactsParams extends PageParams {
   principalId?: string;
   purposeId?: string;
   status?: ConsentStatus;
+  /** Phase 8: scopes results to one Data Fiduciary's tenant. Omit for the unscoped view (mcp-server/jobs). */
+  fiduciaryId?: string;
 }
 
 export interface ListProcessorsParams extends PageParams {
@@ -60,6 +64,8 @@ export interface ListProcessorsParams extends PageParams {
 }
 
 export interface CreatePrincipalInput {
+  /** Phase 8: which tenant this principal belongs to. Required — apps/api's controller derives it from the caller's session. */
+  fiduciaryId: string;
   name: string;
   email: string;
   phone?: string;
@@ -69,25 +75,40 @@ export interface CreatePrincipalInput {
 }
 
 export interface CreatePurposeInput {
+  /** Phase 8: which tenant defines this purpose. Required — apps/api's controller derives it from the caller's session. */
+  fiduciaryId: string;
   description: string;
   lawfulBasis: LawfulBasis;
   retentionPeriodDays: number;
 }
 
 export interface ConsentRepository {
+  /**
+   * The platform's primary/first-seeded fiduciary — the implicit tenant
+   * mcp-server and jobs/ act on behalf of when an entity they create (e.g.
+   * a BreachEvent with no affectedPurposeIds) has no other way to derive
+   * its fiduciaryId. Not a general multi-tenant lookup; see
+   * findFiduciaryById/listFiduciaries for that.
+   */
   getFiduciary(): Promise<DataFiduciary>;
+  findFiduciaryById(id: string): Promise<DataFiduciary | null>;
+  listFiduciaries(): Promise<DataFiduciary[]>;
 
-  listPrincipals(params?: PageParams): Promise<DataPrincipal[]>;
+  listPrincipals(params?: PageParams & { fiduciaryId?: string }): Promise<DataPrincipal[]>;
   findPrincipalById(id: string): Promise<DataPrincipal | null>;
   /** Onboards a new DataPrincipal. Added in Phase 4 for the principals CRUD endpoint. */
   createPrincipal(input: CreatePrincipalInput): Promise<DataPrincipal>;
 
-  listPurposes(params?: PageParams): Promise<Purpose[]>;
+  listPurposes(params?: PageParams & { fiduciaryId?: string }): Promise<Purpose[]>;
   findPurposeById(id: string): Promise<Purpose | null>;
   /** Defines a new Purpose. Added in Phase 4 for the purposes CRUD endpoint. */
   createPurpose(input: CreatePurposeInput): Promise<Purpose>;
 
-  /** Backs the `create_consent_record` MCP tool. */
+  /**
+   * Backs the `create_consent_record` MCP tool. fiduciaryId is derived
+   * internally from the referenced purpose (Phase 8) — not caller input,
+   * so this signature and every existing caller are unchanged.
+   */
   createConsentArtifact(input: CreateConsentArtifactInput): Promise<ConsentArtifact>;
   /** Backs the `revoke_consent` MCP tool. Only valid from status "granted". */
   revokeConsentArtifact(id: string, reason: string): Promise<ConsentArtifact>;
@@ -105,6 +126,26 @@ export interface ConsentRepository {
   markProcessorForPurge(id: string, reason: string): Promise<Processor>;
 }
 
+// ─── UserRepository (Phase 8: multi-tenant + RBAC) ─────────────────────────
+
+export interface CreateUserInput {
+  fiduciaryId: string;
+  username: string;
+  /** Already-hashed (bcrypt) — this layer never sees or handles a plaintext password. */
+  passwordHash: string;
+  role: Role;
+}
+
+export interface UserRepository {
+  createUser(input: CreateUserInput): Promise<User>;
+  /** Used by login — usernames are unique platform-wide, not just per-tenant, since login happens before a tenant is known. */
+  findUserByUsername(username: string): Promise<User | null>;
+  findUserById(id: string): Promise<User | null>;
+  /** Always scoped — there is no unscoped "list every user on the platform" method, deliberately. */
+  listUsers(fiduciaryId: string, params?: PageParams): Promise<User[]>;
+  updateUserRole(id: string, role: Role): Promise<User>;
+}
+
 // ─── DSRRepository ─────────────────────────────────────────────────────────
 
 export interface CreateDSRRequestInput {
@@ -118,10 +159,15 @@ export interface ListDSRRequestsParams extends PageParams {
   principalId?: string;
   /** Added in Phase 6 for the dashboard's DSR queue type filter. */
   type?: DSRType;
+  /** Phase 8: scopes results to one Data Fiduciary's tenant. Omit for the unscoped view (mcp-server/jobs). */
+  fiduciaryId?: string;
 }
 
 export interface DSRRepository {
-  /** Backs the `create_dsr_request` MCP tool. */
+  /**
+   * Backs the `create_dsr_request` MCP tool. fiduciaryId is derived
+   * internally from the referenced principal (Phase 8) — not caller input.
+   */
   createDSRRequest(input: CreateDSRRequestInput): Promise<DSRRequest>;
   findDSRRequestById(id: string): Promise<DSRRequest | null>;
   /** Backs the `list_open_dsr_requests` MCP tool. */
@@ -153,6 +199,11 @@ export interface CreateBreachEventInput {
   affectedPurposeIds?: string[];
 }
 
+export interface ListBreachEventsParams extends PageParams {
+  /** Phase 8: scopes results to one Data Fiduciary's tenant. Omit for the unscoped view (mcp-server/jobs). */
+  fiduciaryId?: string;
+}
+
 export interface DateRange {
   from: Date;
   to: Date;
@@ -182,13 +233,24 @@ export interface LedgerRepository {
   appendEntry(input: AppendLedgerEntryInput): Promise<ConsentLedgerEntry>;
   listEntries(params?: ListLedgerEntriesParams): Promise<ConsentLedgerEntry[]>;
 
+  /**
+   * Backs the `report_breach_event` MCP tool. fiduciaryId is derived
+   * internally (Phase 8) — see BreachEvent's doc comment in types.ts for
+   * exactly how — not caller input.
+   */
   createBreachEvent(input: CreateBreachEventInput): Promise<BreachEvent>;
-  listBreachEvents(params?: PageParams): Promise<BreachEvent[]>;
+  listBreachEvents(params?: ListBreachEventsParams): Promise<BreachEvent[]>;
   /** Added in Phase 7 for the breach-notice-drafting job to load the triggering event. */
   findBreachEventById(id: string): Promise<BreachEvent | null>;
 
-  /** Backs the `get_compliance_snapshot` MCP tool. */
-  getComplianceSnapshot(dateRange: DateRange): Promise<ComplianceSnapshot>;
+  /**
+   * Backs the `get_compliance_snapshot` MCP tool, called with no
+   * fiduciaryId there (mcp-server stays tenant-unscoped) — aggregates
+   * across every tenant. apps/api's dashboard-facing controller passes the
+   * caller's fiduciaryId (Phase 8) to scope the snapshot to their tenant
+   * alone.
+   */
+  getComplianceSnapshot(dateRange: DateRange, fiduciaryId?: string): Promise<ComplianceSnapshot>;
 
   /**
    * Backs the `verify_ledger_integrity` MCP tool. By default (Phase 6),
@@ -204,6 +266,16 @@ export interface LedgerRepository {
    * count toward entriesChecked — entriesChecked otherwise reflects exactly
    * what this call examined (the incremental delta, or everything on a full
    * walk), not the full ledger size.
+   *
+   * Deliberately NOT tenant-scoped (Phase 8): the hash chain is one global,
+   * strictly sequential structure — entries from every tenant interleave in
+   * it by append order, and mcp-server/jobs write to it without any
+   * fiduciaryId at all. Splitting it into per-tenant chains would be a much
+   * larger redesign than this phase's scope. Its result (intact/broken,
+   * a count, a sequence number) carries no tenant-specific business data,
+   * so showing the whole platform's chain health to every authenticated
+   * user regardless of role or tenant is a deliberate, safe choice, not an
+   * oversight.
    */
   verifyLedgerIntegrity(dateRange?: DateRange, verifyFullChain?: boolean): Promise<LedgerIntegrityReport>;
 }

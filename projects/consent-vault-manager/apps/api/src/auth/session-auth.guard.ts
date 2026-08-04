@@ -22,7 +22,7 @@ export class SessionAuthGuard implements CanActivate {
     if (isPublic) return true;
 
     const request = context.switchToHttp().getRequest<Request>();
-    if (!request.session?.authenticated) {
+    if (!request.session?.userId) {
       throw new UnauthorizedException("Not authenticated");
     }
     return true;

@@ -16,6 +16,7 @@ export async function resetDatabase(prisma: PrismaClient): Promise<ReturnType<ty
   await prisma.breachEvent.deleteMany();
   await prisma.purpose.deleteMany();
   await prisma.dataPrincipal.deleteMany();
+  await prisma.user.deleteMany();
   await prisma.dataFiduciary.deleteMany();
 
   return seedDatabase(prisma);

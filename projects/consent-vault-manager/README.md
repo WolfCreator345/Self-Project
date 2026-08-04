@@ -9,7 +9,7 @@ This project lives at `projects/consent-vault-manager/` in this repo,
 alongside the unrelated LexEdu app (`backend/`, `frontend/`) — the two are
 independent projects sharing a repo, not a monorepo (yet).
 
-## Status: Phase 7 — breach notices, DSR SLA escalation, weekly reports
+## Status: Phase 8 — multi-tenant + RBAC
 
 Done — Phase 0 (mock data layer):
 - `mock-store/types.ts` — domain model (`DataPrincipal`, `DataFiduciary`,
@@ -523,6 +523,138 @@ so a fixed `expiresAt` in the past is a stable, intentional fixture (e.g.
 `consent-12`, seeded stale on purpose so the sweep has something to do on
 its first tick), not a source of drift.
 
+Done — Phase 8 (multi-tenant + RBAC):
+
+- **`fiduciaryId` on six entities, `ConsentLedgerEntry` deliberately
+  excluded.** `DataPrincipal`, `Purpose`, `ConsentArtifact`, `DSRRequest`,
+  `BreachEvent`, and `Processor` all gained a `fiduciaryId: string` column.
+  The ledger stays one global, sequential hash chain — splitting it per
+  tenant would mean N independent chains instead of one, which is a much
+  bigger structural change than this phase's brief called for, and every
+  entry the chain records (a consent grant, a DSR resolution, a breach
+  report) is already traceable back to its tenant through the entity it
+  references. `verify_ledger_integrity` and `GET
+  /compliance/ledger-integrity` stay unscoped for the same reason — the
+  live-verification run below confirms two different tenants' sessions see
+  byte-identical chain-health results, including the incremental
+  checkpoint cache (a session-shared, instance-level optimization from
+  Phase 6) staying correct across tenants rather than accidentally
+  becoming a per-tenant cache.
+- **"Derive, don't ask."** No MCP tool signature changed. `fiduciaryId` is
+  never a parameter a caller supplies — it's derived inside the repository
+  method from whichever parent entity makes the relationship unambiguous:
+  `createConsentArtifact` takes it from the `Purpose` (after checking the
+  supplied `principalId` and `purposeId` actually belong to the same
+  fiduciary — a `ConsentArtifact` spanning two tenants would be a
+  contradiction, not just an isolation gap), `createDSRRequest` from the
+  `DataPrincipal`. `BreachEvent` has no required parent to derive from (a
+  breach can be logged before any purpose is confirmed affected), so it
+  falls back to "the platform's primary fiduciary" (first `DataFiduciary`
+  by `createdAt`) when `affectedPurposeIds` is empty, and derives from the
+  first affected purpose otherwise. This is why mcp-server and jobs/ needed
+  **zero** code changes this phase — every write path they already call
+  still takes exactly the same arguments and now silently produces a
+  correctly-scoped row.
+- **Scope boundary: dashboard/API only, by explicit choice.** mcp-server
+  and jobs/ stay tenant-unaware on purpose — they're trusted,
+  single-operator tools (a human with Claude Code access, or a worker
+  process with its own direct Postgres connection), not something an
+  untrusted multi-tenant caller ever talks to directly. Extending RBAC
+  there would mean inventing a service-to-service auth story the spec
+  never asked for. Only `apps/api`'s controllers and session auth became
+  tenant/role-aware.
+- **Real `User` rows replace the Phase 6 env-var admin.** `ADMIN_USERNAME`/
+  `ADMIN_PASSWORD_HASH` are gone from `.env.example`; a new `users` table
+  (`id`, `fiduciaryId`, `username`, `passwordHash`, `role`, `createdAt`)
+  backs login instead, seeded by `prisma/seed-database.ts` alongside
+  everything else. `AuthService.validateCredentials` now looks the
+  username up via `PrismaUserRepository` and `bcrypt.compare`s against the
+  stored hash — mock-store's own `store.ts` can't depend on the `bcrypt`
+  npm package at runtime (kept dependency-light, same reasoning as every
+  earlier phase), so `seed.ts`'s `DEMO_PASSWORD_HASH` is a bcrypt hash
+  precomputed offline and hardcoded as a literal, exactly mirroring how
+  `ADMIN_PASSWORD_HASH` worked before it.
+- **Three roles: `admin`, `dpo`, `viewer`.** A superset hierarchy, not
+  independent permission sets — `admin` can do everything `dpo` can, plus
+  manage the fiduciary's own users; `dpo` can read and write consent/DSR/
+  breach data but can't touch `/users`; `viewer` is read-only everywhere. A
+  new `RolesGuard` (paired with a `@Roles(...)` decorator) runs after the
+  existing `SessionAuthGuard` in the `APP_GUARD` chain — session auth
+  establishes *who*, the roles guard establishes *what they're allowed to
+  do*. `UsersController` is gated `@Roles("admin")` at the class level, so
+  every route under `/users` is admin-only in one place rather than
+  per-method.
+- **Tenant isolation on reads: filter, don't 403.** Every list endpoint
+  (`GET /principals`, `/purposes`, `/consent-artifacts`, `/dsr-requests`,
+  `/compliance/breach-events`, `/compliance/snapshot`) now scopes its
+  query to `req.session.fiduciaryId` — a viewer session never even sees
+  another tenant's rows exist, rather than seeing them and being denied.
+- **Tenant isolation on single-entity gets: 404, not 403.** Fetching
+  another tenant's entity by id (e.g. `GET /principals/principal-1` as a
+  Northbridge session, when `principal-1` belongs to LexEdu) returns
+  `{"message":"Unknown principal: principal-1", "statusCode":404}` — the
+  same shape as a truly nonexistent id. A 403 would leak the fact that the
+  id exists somewhere, just not to you; a well-run vault shouldn't confirm
+  or deny another tenant's data even exists.
+- **Defense-in-depth on writes: repository-level consistency + controller-
+  level ownership.** `createConsentArtifact`'s repository method already
+  checks that the supplied principal and purpose belong to the *same*
+  fiduciary (internal consistency) — but two different tenants' data can
+  still be internally consistent with each other without belonging to the
+  caller, so a malicious/buggy DPO session could otherwise create a
+  consent artifact for a tenant they don't belong to just by supplying a
+  valid pair of that tenant's ids. `consent-artifacts.controller.ts`'s
+  `create()` handler adds an explicit second check — fetching the
+  principal and verifying `principal.fiduciaryId === req.session
+  .fiduciaryId` — before ever calling the repository. Both checks stayed;
+  neither makes the other redundant.
+- **Seed data: two fiduciaries, not one.** LexEdu Technologies (the
+  original tenant, `fiduciary-1`) is joined by Northbridge FinServ Pvt.
+  Ltd. (`fiduciary-2`) with its own purpose, two principals, two consent
+  artifacts, a DSR request, and a breach event — so tests and the demo can
+  prove tenant A genuinely can't see tenant B's data, not just that a
+  `fiduciaryId` column exists and happens to be populated. Six `User` rows
+  (admin/dpo/viewer × 2 fiduciaries) share the same seeded password,
+  `demo-password-123`: `admin@lexedu.example`, `dpo@lexedu.example`,
+  `viewer@lexedu.example`, `admin@northbridge.example`,
+  `dpo@northbridge.example`, `viewer@northbridge.example`.
+- **Migration: expand → backfill → contract, same pattern as Phase 5's
+  hash chain.** `prisma migrate dev --create-only` correctly refused to
+  generate a directly-appliable migration for adding required columns to
+  non-empty tables. The hand-edited migration adds the `users` table (safe
+  — brand new, all columns `NOT NULL` from the start), then adds
+  `fiduciaryId` nullable on the six existing tables, backfills every
+  existing row to `'fiduciary-1'` via a raw `UPDATE`, then `ALTER COLUMN
+  ... SET NOT NULL`, then adds the indexes and foreign keys. Simpler than
+  Phase 5's version of this pattern since the backfill here is a flat
+  constant, not a per-row computed hash.
+- **Verified live.** Booted the real `apps/api` against real Postgres +
+  Redis. Confirmed: LexEdu admin and Northbridge admin logins both return
+  the correct `{username, role, fiduciaryId, fiduciaryName}` shape;
+  `GET /principals` returns LexEdu's 8 vs. Northbridge's 2, never mixed;
+  fetching a LexEdu principal id as a Northbridge session 404s; a viewer
+  session gets 403 (`"This action requires one of: admin, dpo. Your role
+  is viewer."`) on `POST /principals` while a dpo session on the same
+  tenant succeeds and the created row carries the correct derived
+  `fiduciaryId`; a dpo session gets 403 on `GET /users`
+  (`admin`-only); an admin can create a new user, see it appear in
+  `GET /users`, is blocked with a 403 from demoting their own account, and
+  is blocked with a 404 (not 403) from changing another tenant's user's
+  role by id; `/compliance/snapshot` and `/compliance/breach-events`
+  differ correctly per tenant while `/compliance/ledger-integrity` returns
+  identical results regardless of which tenant is logged in (verified both
+  via the incremental checkpoint and with `verifyFullChain=true` forcing a
+  full walk). Also re-ran `mcp-server`'s smoke test and `jobs`' test suite:
+  **zero source changes** to either package's own code — confirming the
+  "derive, don't ask" pattern fully achieves the dashboard/API-only scope
+  boundary without mcp-server or jobs/ ever becoming tenant-aware. Two of
+  the smoke test's own count *assertions* did need updating (3→4 open DSR
+  requests, 3→4 breaches logged), since both numbers are deliberately
+  unscoped aggregates over the whole platform and Phase 8's second
+  fiduciary added one DSR request and one breach event to what they sum —
+  the same kind of stale-fixture-count update every other test suite in
+  this phase needed, not a functional gap in mcp-server itself.
+
 ### Design decisions made without a spec answer
 
 The spec's domain model lists 7 entities but only 3 repositories. This
@@ -637,22 +769,31 @@ npm run typecheck
 npm start                     # nest build && node dist/apps/api/src/main.js
 ```
 
-**Auth setup (Phase 6).** `.env.example` also has `SESSION_SECRET`,
-`CORS_ORIGIN` (must match wherever `apps/dashboard`'s dev server runs, e.g.
-`http://localhost:5173`), `ADMIN_USERNAME`, and `ADMIN_PASSWORD_HASH` —
-generate the hash with:
+**Auth setup (Phase 6, users as of Phase 8).** `.env.example` has
+`SESSION_SECRET` and `CORS_ORIGIN` (must match wherever `apps/dashboard`'s
+dev server runs, e.g. `http://localhost:5173`). Users themselves are real
+DB rows now — `npm run prisma:seed` loads six of them (admin/dpo/viewer ×
+two seeded fiduciaries), all sharing the password `demo-password-123`:
+`admin@lexedu.example`, `dpo@lexedu.example`, `viewer@lexedu.example`,
+`admin@northbridge.example`, `dpo@northbridge.example`,
+`viewer@northbridge.example`. To add another user once the API is running,
+sign in as an admin and `POST /users` (see below) — or, to seed one
+directly, generate a bcrypt hash the same way `seed.ts`'s
+`DEMO_PASSWORD_HASH` was produced:
 
 ```bash
 node -e "console.log(require('bcrypt').hashSync('your-password', 10))"
 ```
 
 Every endpoint except `POST /auth/login` and `POST /auth/logout` requires an
-authenticated session cookie now:
+authenticated session cookie now, and most endpoints also scope their
+results to the caller's own fiduciary and require a minimum role
+(`dpo`/`admin` to write, `admin`-only for `/users`):
 
 ```bash
 curl -c cookies.txt -X POST http://localhost:3000/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"your-password"}'
+  -d '{"username":"admin@lexedu.example","password":"demo-password-123"}'
 
 curl -b cookies.txt http://localhost:3000/principals/principal-1
 curl -b cookies.txt "http://localhost:3000/consent-artifacts?principalId=principal-1&purposeId=purpose-2"
@@ -660,6 +801,13 @@ curl -b cookies.txt -X POST http://localhost:3000/consent-artifacts \
   -H "Content-Type: application/json" \
   -d '{"principalId":"principal-1","purposeId":"purpose-1","noticeVersion":"v2.0","language":"en"}'
 curl -b cookies.txt "http://localhost:3000/compliance/ledger-integrity"
+
+# admin-only: manage this fiduciary's own team
+curl -b cookies.txt http://localhost:3000/users
+curl -b cookies.txt -X POST http://localhost:3000/users -H "Content-Type: application/json" \
+  -d '{"username":"newdpo@lexedu.example","password":"a-real-password","role":"dpo"}'
+curl -b cookies.txt -X PUT http://localhost:3000/users/<id>/role -H "Content-Type: application/json" \
+  -d '{"role":"viewer"}'
 ```
 
 **Why `npm start` is `nest build && node dist/apps/api/src/main.js`, not
@@ -791,7 +939,11 @@ npm run dev                  # Vite dev server, defaults to http://localhost:517
 Make sure `apps/api`'s `CORS_ORIGIN` matches whatever origin the dashboard
 actually runs on (`http://localhost:5173` for the Vite dev server by
 default) — cookies won't round-trip cross-origin otherwise. Sign in with
-the `ADMIN_USERNAME`/password whose bcrypt hash you put in `apps/api/.env`.
+any of the seeded demo logins (e.g. `admin@lexedu.example` /
+`demo-password-123` — see the Phase 8 changelog above for the full list).
+An `admin` session sees a "Team" nav link (`/users`) that `dpo`/`viewer`
+sessions don't; the header shows the signed-in username, role, and
+fiduciary name, and every view only ever shows that fiduciary's own data.
 
 ## Next step
 
@@ -800,3 +952,11 @@ end, including the weekly compliance report (archived to local disk in
 place of Google Drive — see the Phase 7 changelog above for the connector
 regression that motivated that, and swap in a real `ReportArchiver` once
 it's fixed upstream).
+
+Phase 8 (multi-tenant + RBAC) went beyond the original spec — one admin
+was fine for a single-fiduciary demo, but a real deployment serving more
+than one Data Fiduciary needs org boundaries and roles, not a shared
+superuser account. That's now built and verified live end to end too (see
+the Phase 8 changelog above): two isolated tenants, three roles, and
+mcp-server/jobs proven unaffected by re-running their existing test
+suites unmodified.

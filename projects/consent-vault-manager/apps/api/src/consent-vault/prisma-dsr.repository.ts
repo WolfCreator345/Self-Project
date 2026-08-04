@@ -29,6 +29,7 @@ export class PrismaDSRRepository implements DSRRepository {
     const now = new Date();
     const row = await this.prisma.dSRRequest.create({
       data: {
+        fiduciaryId: principal.fiduciaryId,
         principalId: input.principalId,
         type: input.type,
         submittedAt: now,
@@ -61,6 +62,7 @@ export class PrismaDSRRepository implements DSRRepository {
     if (params?.overdueOnly) AND.push({ status: { not: "resolved" }, dueAt: { lt: new Date() } });
     if (params?.status) AND.push({ status: params.status });
     if (params?.type) AND.push({ type: params.type });
+    if (params?.fiduciaryId) AND.push({ fiduciaryId: params.fiduciaryId });
 
     const rows = await this.prisma.dSRRequest.findMany({
       where: AND.length > 0 ? { AND } : undefined,
