@@ -1,0 +1,22 @@
+{
+  "name": "consent-vault-mcp-server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "MCP server exposing Consent Vault operations as tools, backed by the mock-store (Phase 0).",
+  "scripts": {
+    "start": "tsx src/index.ts",
+    "smoke-test": "tsx scripts/smoke-test.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.11.0",
+    "bullmq": "^5.80.9",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0"
+  }
+}

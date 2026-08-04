@@ -1,0 +1,13 @@
+body {
+  margin: 0;
+  font-family: system-ui, "Segoe UI", Roboto, sans-serif;
+}
+
+table {
+  font-size: 14px;
+}
+
+th {
+  text-align: left;
+  background: #f4f3ec;
+}

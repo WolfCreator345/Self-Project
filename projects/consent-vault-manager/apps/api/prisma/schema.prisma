@@ -1,0 +1,273 @@
+// Consent Vault Manager — Phase 4 Prisma schema.
+// Mirrors mock-store/types.ts field-for-field so PrismaConsentRepository /
+// PrismaDSRRepository / PrismaLedgerRepository can map 1:1 onto the same
+// ConsentRepository / DSRRepository / LedgerRepository interfaces Phase 0
+// defined. No hash-chain fields on ConsentLedgerEntry yet — that's Phase 5.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum LawfulBasis {
+  consent
+  legitimate_use
+}
+
+enum ConsentStatus {
+  granted
+  withdrawn
+  expired
+}
+
+enum LedgerEntryType {
+  consent_granted
+  consent_withdrawn
+  consent_expired
+  dsr_created
+  dsr_resolved
+  breach_logged
+  processor_purge_flagged
+  renewal_email_drafted
+  purge_notice_email_drafted
+  purge_followup_event_scheduled
+  breach_notice_drafted
+  breach_notice_deadline_scheduled
+  dsr_escalation_sent
+  weekly_report_sent
+}
+
+enum DSRType {
+  access
+  correction
+  erasure
+  nomination
+}
+
+enum DSRStatus {
+  open
+  in_progress
+  resolved
+  overdue
+}
+
+enum BreachSeverity {
+  low
+  medium
+  high
+  critical
+}
+
+enum ProcessorStatus {
+  active
+  purge_pending
+  purged
+}
+
+// Phase 8: multi-tenant + RBAC. Three roles, each a strict superset of read
+// access of the one below it — see mock-store/types.ts's Role doc comment
+// for the exact permission split. Deliberately scoped to apps/api's
+// session-authenticated surface only; mcp-server and jobs/ stay tenant-
+// unaware (see the fiduciaryId comments below).
+enum Role {
+  admin
+  dpo
+  viewer
+}
+
+model DataFiduciary {
+  id        String   @id @default(uuid())
+  name      String
+  dpoName   String
+  dpoEmail  String
+  createdAt DateTime @default(now())
+
+  principals       DataPrincipal[]
+  purposes         Purpose[]
+  users            User[]
+  consentArtifacts ConsentArtifact[]
+  dsrRequests      DSRRequest[]
+  breachEvents     BreachEvent[]
+  processors       Processor[]
+
+  @@map("data_fiduciaries")
+}
+
+// Phase 8. Login users — replaces the old single env-var admin
+// (ADMIN_USERNAME/ADMIN_PASSWORD_HASH). Each user belongs to exactly one
+// fiduciary; usernames are unique platform-wide (not just per-tenant),
+// since login happens before a tenant is known.
+model User {
+  id           String   @id @default(uuid())
+  fiduciaryId  String
+  username     String   @unique
+  passwordHash String
+  role         Role
+  createdAt    DateTime @default(now())
+
+  fiduciary DataFiduciary @relation(fields: [fiduciaryId], references: [id])
+
+  @@index([fiduciaryId])
+  @@map("users")
+}
+
+model DataPrincipal {
+  id            String   @id @default(uuid())
+  // Phase 8 multi-tenancy — see mock-store/types.ts's doc comment.
+  fiduciaryId   String
+  name          String
+  email         String
+  phone         String?
+  isMinor       Boolean  @default(false)
+  guardianName  String?
+  guardianEmail String?
+  createdAt     DateTime @default(now())
+
+  fiduciary        DataFiduciary     @relation(fields: [fiduciaryId], references: [id])
+  consentArtifacts ConsentArtifact[]
+  dsrRequests      DSRRequest[]
+
+  @@index([fiduciaryId])
+  @@map("data_principals")
+}
+
+model Purpose {
+  id                  String      @id @default(uuid())
+  // Phase 8 multi-tenancy — see mock-store/types.ts's doc comment.
+  fiduciaryId         String
+  description         String
+  lawfulBasis         LawfulBasis
+  retentionPeriodDays Int
+  createdAt           DateTime    @default(now())
+
+  fiduciary        DataFiduciary     @relation(fields: [fiduciaryId], references: [id])
+  consentArtifacts ConsentArtifact[]
+  processors       Processor[]
+
+  @@index([fiduciaryId])
+  @@map("purposes")
+}
+
+model ConsentArtifact {
+  id            String        @id @default(uuid())
+  // Phase 8 multi-tenancy — always equal to purpose.fiduciaryId, derived
+  // automatically at creation. See mock-store/types.ts's doc comment.
+  fiduciaryId   String
+  principalId   String
+  purposeId     String
+  status        ConsentStatus
+  grantedAt     DateTime
+  withdrawnAt   DateTime?
+  expiresAt     DateTime
+  noticeVersion String
+  language      String
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  fiduciary DataFiduciary @relation(fields: [fiduciaryId], references: [id])
+  principal DataPrincipal @relation(fields: [principalId], references: [id])
+  purpose   Purpose       @relation(fields: [purposeId], references: [id])
+
+  @@index([principalId, purposeId])
+  @@index([status])
+  @@index([fiduciaryId])
+  @@map("consent_artifacts")
+}
+
+// Append-only: no update/delete path is exposed through PrismaLedgerRepository.
+// `sequence` gives the same monotonically increasing append order the mock
+// store's in-memory array index gave.
+//
+// Deliberately has NO fiduciaryId (Phase 8) — the hash chain is one global,
+// strictly sequential structure that entries from every tenant interleave
+// in by append order, written by mcp-server/jobs without any tenant
+// context at all. See LedgerRepository.verifyLedgerIntegrity's doc comment
+// in mock-store/repositories.ts for the full reasoning.
+model ConsentLedgerEntry {
+  id           String          @id @default(uuid())
+  sequence     Int             @default(autoincrement())
+  entryType    LedgerEntryType
+  refId        String
+  principalId  String?
+  detail       Json
+  recordedAt   DateTime        @default(now())
+  // Required as of the second Phase 5 migration — added nullable first so
+  // prisma/backfill-ledger-hash-chain.ts could fill in rows seeded before
+  // the hash chain existed, then tightened once every row had both.
+  previousHash String
+  hash         String
+
+  @@index([refId])
+  @@index([principalId])
+  @@index([entryType])
+  @@map("consent_ledger_entries")
+}
+
+model DSRRequest {
+  id          String    @id @default(uuid())
+  // Phase 8 multi-tenancy — always equal to principal.fiduciaryId, derived
+  // automatically at creation. See mock-store/types.ts's doc comment.
+  fiduciaryId String
+  principalId String
+  type        DSRType
+  submittedAt DateTime
+  dueAt       DateTime
+  status      DSRStatus
+  resolvedAt  DateTime?
+  createdAt   DateTime  @default(now())
+
+  fiduciary DataFiduciary @relation(fields: [fiduciaryId], references: [id])
+  principal DataPrincipal @relation(fields: [principalId], references: [id])
+
+  @@index([principalId])
+  @@index([status])
+  @@index([fiduciaryId])
+  @@map("dsr_requests")
+}
+
+model BreachEvent {
+  id                 String         @id @default(uuid())
+  // Phase 8 multi-tenancy — derived automatically at creation from the
+  // first affected purpose, falling back to the platform's primary
+  // fiduciary when none is named. See mock-store/types.ts's doc comment.
+  fiduciaryId        String
+  description        String
+  detectedAt         DateTime
+  dpbNotifyDueAt     DateTime
+  severity           BreachSeverity
+  /// Purposes affected by this breach — Phase 7, see mock-store/types.ts's BreachEvent doc comment.
+  affectedPurposeIds String[]       @default([])
+  createdAt          DateTime       @default(now())
+
+  fiduciary DataFiduciary @relation(fields: [fiduciaryId], references: [id])
+
+  @@index([fiduciaryId])
+  @@map("breach_events")
+}
+
+// Not in the spec's section 2 table — added in Phase 2 (mock-store) because
+// the withdrawal cascade automation needs "downstream processor records
+// tied to that purpose" to walk and flag. Mirrored here for interface parity.
+model Processor {
+  id           String          @id @default(uuid())
+  // Phase 8 multi-tenancy — always equal to purpose.fiduciaryId. No
+  // runtime creation path exists (seed-time only). See types.ts.
+  fiduciaryId  String
+  name         String
+  purposeId    String
+  status       ProcessorStatus
+  contactEmail String
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+
+  fiduciary DataFiduciary @relation(fields: [fiduciaryId], references: [id])
+  purpose   Purpose       @relation(fields: [purposeId], references: [id])
+
+  @@index([purposeId])
+  @@index([fiduciaryId])
+  @@map("processors")
+}

@@ -1,0 +1,19 @@
+/**
+ * Demo cadence: every 2 minutes. Swap for a daily cron by setting
+ * EXPIRY_SWEEP_INTERVAL_MS to 24 * 60 * 60 * 1000 (or pass a `pattern` cron
+ * string instead of `every` where the sweep is registered in index.ts).
+ */
+export const EXPIRY_SWEEP_INTERVAL_MS = Number(process.env.EXPIRY_SWEEP_INTERVAL_MS ?? 2 * 60 * 1000);
+
+/** Demo cadence: every 2 minutes. Real cadence would be daily (86400000) — DSRs need checking well before their SLA, not just once a week. */
+export const DSR_SLA_ESCALATION_INTERVAL_MS = Number(process.env.DSR_SLA_ESCALATION_INTERVAL_MS ?? 2 * 60 * 1000);
+
+/** Demo cadence: every 10 minutes, so the smoke test doesn't have to wait an actual week. Real cadence would be weekly (7 * 86400000). */
+export const WEEKLY_COMPLIANCE_REPORT_INTERVAL_MS = Number(
+  process.env.WEEKLY_COMPLIANCE_REPORT_INTERVAL_MS ?? 10 * 60 * 1000,
+);
+
+export const REDIS_CONNECTION = {
+  host: process.env.REDIS_HOST ?? "127.0.0.1",
+  port: Number(process.env.REDIS_PORT ?? 6379),
+};

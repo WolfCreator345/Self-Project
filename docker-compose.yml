@@ -1,0 +1,21 @@
+services:
+  consent-vault-postgres:
+    image: postgres:16
+    container_name: consent-vault-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: consent_vault
+      POSTGRES_PASSWORD: consent_vault_dev
+      POSTGRES_DB: consent_vault
+    ports:
+      - "5432:5432"
+    volumes:
+      - consent-vault-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U consent_vault -d consent_vault"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  consent-vault-postgres-data:

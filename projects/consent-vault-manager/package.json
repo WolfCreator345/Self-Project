@@ -1,0 +1,17 @@
+{
+  "name": "consent-vault-manager",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "DPDP Act 2023 Data Fiduciary-side consent lifecycle system — vault, automations, and MCP orchestration.",
+  "scripts": {
+    "demo": "tsx scripts/demo.ts",
+    "test": "node --import tsx --test tests/**/*.test.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0"
+  }
+}
