@@ -113,6 +113,11 @@ export class InMemoryConsentVaultStore implements ConsentRepository, DSRReposito
     if (!principal) throw new Error(`Unknown principal: ${input.principalId}`);
     const purpose = this.purposes.get(input.purposeId);
     if (!purpose) throw new Error(`Unknown purpose: ${input.purposeId}`);
+    if (purpose.lawfulBasis !== "consent") {
+      throw new Error(
+        `Purpose "${purpose.id}" is processed under "${purpose.lawfulBasis}" — consent cannot be recorded as its basis.`,
+      );
+    }
 
     const now = new Date();
     const artifact: ConsentArtifact = {

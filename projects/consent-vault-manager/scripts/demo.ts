@@ -25,7 +25,7 @@ async function main() {
   console.log("\n── create_consent_record + revoke_consent round trip ──────");
   const created = await store.createConsentArtifact({
     principalId: "principal-6",
-    purposeId: "purpose-3",
+    purposeId: "purpose-2",
     noticeVersion: "v1.3",
     language: "en",
   });

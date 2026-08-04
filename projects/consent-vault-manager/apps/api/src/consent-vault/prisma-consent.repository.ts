@@ -89,6 +89,11 @@ export class PrismaConsentRepository implements ConsentRepository {
     if (!principal) throw new Error(`Unknown principal: ${input.principalId}`);
     const purpose = await this.prisma.purpose.findUnique({ where: { id: input.purposeId } });
     if (!purpose) throw new Error(`Unknown purpose: ${input.purposeId}`);
+    if (purpose.lawfulBasis !== "consent") {
+      throw new Error(
+        `Purpose "${purpose.id}" is processed under "${purpose.lawfulBasis}" — consent cannot be recorded as its basis.`,
+      );
+    }
 
     const now = new Date();
     const row = await this.prisma.consentArtifact.create({

@@ -111,6 +111,22 @@ describe("ConsentRepository", () => {
     await assert.rejects(() => store.revokeConsentArtifact("consent-4", "already withdrawn"));
   });
 
+  it("rejects creating a consent artifact against a legitimate_use purpose", async () => {
+    const store = createSeededStore();
+    // purpose-3 ("Fraud prevention and security monitoring") is legitimate_use —
+    // consent isn't a valid basis for it.
+    await assert.rejects(
+      () =>
+        store.createConsentArtifact({
+          principalId: "principal-1",
+          purposeId: "purpose-3",
+          noticeVersion: "v1.3",
+          language: "en",
+        }),
+      /legitimate_use/,
+    );
+  });
+
   it("lists processors for a purpose and marks one for purge", async () => {
     const store = createSeededStore();
     const processors = await store.listProcessors({ purposeId: "purpose-4" });

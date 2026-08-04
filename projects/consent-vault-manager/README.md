@@ -479,6 +479,29 @@ Done — Phase 7 (breach notice drafting, DSR SLA escalation, weekly compliance 
   with no loss of correctness — an unplanned but useful proof that Redis
   is correctly treated as disposable working state, not a source of truth.
 
+**Enforced: consent can't be recorded against a `legitimate_use` purpose.**
+`Purpose.lawfulBasis` (`"consent" | "legitimate_use"`, Phase 0) existed as a
+label from the start, but `createConsentArtifact` never actually checked it
+— nothing stopped a `ConsentArtifact` from being recorded against a purpose
+that isn't consent-based, which is backwards from how the DPDP Act's basis-
+of-processing distinction works (consent literally isn't the basis for a
+legitimate_use purpose, so it shouldn't be recordable as one). Now enforced
+in both `mock-store/store.ts` and
+`apps/api/src/consent-vault/prisma-consent.repository.ts`, rejecting with
+`Purpose "X" is processed under "legitimate_use" — consent cannot be
+recorded as its basis.` This also surfaced two seeded artifacts
+(`consent-5`, `consent-10`) that had been recorded against `purpose-3` (the
+seed's one `legitimate_use` purpose, "Fraud prevention and security
+monitoring") — reassigned to consent-basis purposes with their `expiresAt`
+recomputed against the new purpose's retention period, so the seed data no
+longer contradicts the rule it's meant to demonstrate.
+`mcp-server`'s `create_consent_record` tool inherits the rejection for
+free (it calls straight through to the repository) — its description and
+smoke test were updated to document and exercise it, and it was verified
+live against the real Postgres-backed MCP server: creating against a
+consent-basis purpose succeeds, against `purpose-3` comes back `isError:
+true` with the message above.
+
 ### Design decisions made without a spec answer
 
 The spec's domain model lists 7 entities but only 3 repositories. This

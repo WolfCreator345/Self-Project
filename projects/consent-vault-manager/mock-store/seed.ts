@@ -54,6 +54,10 @@ export function createSeedData(): SeedData {
       createdAt: d("2023-01-01"),
     },
     {
+      // The seed's only legitimate_use purpose — deliberately has zero
+      // ConsentArtifacts referencing it below: consent can't be the basis
+      // for a legitimate_use purpose, and createConsentArtifact now
+      // enforces exactly that (see store.ts / prisma-consent.repository.ts).
       id: "purpose-3",
       description: "Fraud prevention and security monitoring",
       lawfulBasis: "legitimate_use",
@@ -104,12 +108,12 @@ export function createSeedData(): SeedData {
     { id: "consent-2", principalId: "principal-1", purposeId: "purpose-1", status: "expired", grantedAt: d("2024-05-01"), expiresAt: d("2025-05-01"), noticeVersion: "v1.0", language: "en", createdAt: d("2024-05-01"), updatedAt: d("2025-05-01") },
     { id: "consent-3", principalId: "principal-2", purposeId: "purpose-2", status: "granted", grantedAt: d("2025-06-15"), expiresAt: d("2028-06-15"), noticeVersion: "v1.2", language: "en", createdAt: d("2025-06-15"), updatedAt: d("2025-06-15") },
     { id: "consent-4", principalId: "principal-2", purposeId: "purpose-4", status: "withdrawn", grantedAt: d("2024-01-10"), withdrawnAt: d("2025-02-01"), expiresAt: d("2026-01-10"), noticeVersion: "v1.0", language: "en", createdAt: d("2024-01-10"), updatedAt: d("2025-02-01") },
-    { id: "consent-5", principalId: "principal-3", purposeId: "purpose-3", status: "granted", grantedAt: d("2026-06-01"), expiresAt: d("2026-11-28"), noticeVersion: "v1.3", language: "en", createdAt: d("2026-06-01"), updatedAt: d("2026-06-01") },
+    { id: "consent-5", principalId: "principal-3", purposeId: "purpose-4", status: "granted", grantedAt: d("2026-06-01"), expiresAt: d("2028-06-01"), noticeVersion: "v1.3", language: "en", createdAt: d("2026-06-01"), updatedAt: d("2026-06-01") },
     { id: "consent-6", principalId: "principal-3", purposeId: "purpose-1", status: "withdrawn", grantedAt: d("2025-08-01"), withdrawnAt: d("2026-01-15"), expiresAt: d("2026-08-01"), noticeVersion: "v1.1", language: "hi", createdAt: d("2025-08-01"), updatedAt: d("2026-01-15") },
     { id: "consent-7", principalId: "principal-4", purposeId: "purpose-2", status: "granted", grantedAt: d("2026-04-01"), expiresAt: d("2029-04-01"), noticeVersion: "v1.3", language: "en", createdAt: d("2026-04-01"), updatedAt: d("2026-04-01") },
     { id: "consent-8", principalId: "principal-5", purposeId: "purpose-4", status: "granted", grantedAt: d("2025-09-01"), expiresAt: d("2027-09-01"), noticeVersion: "v1.2", language: "en", createdAt: d("2025-09-01"), updatedAt: d("2025-09-01") },
     { id: "consent-9", principalId: "principal-6", purposeId: "purpose-1", status: "expired", grantedAt: d("2023-06-01"), expiresAt: d("2024-06-01"), noticeVersion: "v1.0", language: "en", createdAt: d("2023-06-01"), updatedAt: d("2024-06-01") },
-    { id: "consent-10", principalId: "principal-7", purposeId: "purpose-3", status: "withdrawn", grantedAt: d("2026-03-01"), withdrawnAt: d("2026-05-10"), expiresAt: d("2026-08-28"), noticeVersion: "v1.3", language: "en", createdAt: d("2026-03-01"), updatedAt: d("2026-05-10") },
+    { id: "consent-10", principalId: "principal-7", purposeId: "purpose-2", status: "withdrawn", grantedAt: d("2026-03-01"), withdrawnAt: d("2026-05-10"), expiresAt: d("2029-03-01"), noticeVersion: "v1.3", language: "en", createdAt: d("2026-03-01"), updatedAt: d("2026-05-10") },
     { id: "consent-11", principalId: "principal-8", purposeId: "purpose-2", status: "granted", grantedAt: d("2026-07-01"), expiresAt: d("2029-07-01"), noticeVersion: "v1.3", language: "en", createdAt: d("2026-07-01"), updatedAt: d("2026-07-01") },
     // Deliberately stale: still "granted" but expiresAt is well before "today" (2026-07-19) —
     // simulates a record the expiry sweep job hasn't processed yet, so Phase 2's job has

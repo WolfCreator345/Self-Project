@@ -82,6 +82,19 @@ describe("PrismaConsentRepository", () => {
     await expect(consentRepository.revokeConsentArtifact("consent-4", "already withdrawn")).rejects.toThrow();
   });
 
+  it("rejects creating a consent artifact against a legitimate_use purpose", async () => {
+    // purpose-3 ("Fraud prevention and security monitoring") is legitimate_use —
+    // consent isn't a valid basis for it.
+    await expect(
+      consentRepository.createConsentArtifact({
+        principalId: "principal-1",
+        purposeId: "purpose-3",
+        noticeVersion: "v1.3",
+        language: "en",
+      }),
+    ).rejects.toThrow(/legitimate_use/);
+  });
+
   it("lists processors for a purpose and marks one for purge", async () => {
     const processors = await consentRepository.listProcessors({ purposeId: "purpose-4" });
     expect(processors).toHaveLength(2);

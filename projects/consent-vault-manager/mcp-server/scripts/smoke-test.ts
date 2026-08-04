@@ -92,7 +92,7 @@ async function main() {
     name: "create_consent_record",
     arguments: {
       principal_id: "principal-6",
-      purpose_id: "purpose-3",
+      purpose_id: "purpose-2",
       notice_version: "v1.3",
       language: "en",
     },
@@ -100,6 +100,20 @@ async function main() {
   const createdData = textOf(created) as { id: string; status: string };
   assert.equal(createdData.status, "granted");
   console.log(`✓ create_consent_record created ${createdData.id}`);
+
+  // create_consent_record against a legitimate_use purpose (purpose-3) should come back
+  // as a tool error, not a crash — consent isn't a valid basis for that purpose.
+  const createAgainstLegitimateUse = await client.callTool({
+    name: "create_consent_record",
+    arguments: {
+      principal_id: "principal-6",
+      purpose_id: "purpose-3",
+      notice_version: "v1.3",
+      language: "en",
+    },
+  });
+  assert.equal(createAgainstLegitimateUse.isError, true);
+  console.log("✓ create_consent_record against a legitimate_use purpose returns isError instead of throwing");
 
   // revoke_consent
   const revoked = await client.callTool({

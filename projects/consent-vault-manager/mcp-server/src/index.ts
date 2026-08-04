@@ -54,7 +54,9 @@ server.registerTool(
     title: "Create consent record",
     description:
       "Record that a data principal has granted consent for a purpose. Mutates vault state — " +
-      "the calling client should confirm with the user before invoking this.",
+      "the calling client should confirm with the user before invoking this. Rejected if the " +
+      "purpose's lawful basis isn't 'consent' (e.g. a legitimate_use purpose) — consent can't " +
+      "be recorded as the basis for a purpose that isn't consent-based.",
     inputSchema: {
       principal_id: z.string().describe("id of the DataPrincipal granting consent"),
       purpose_id: z.string().describe("id of the Purpose being consented to"),
