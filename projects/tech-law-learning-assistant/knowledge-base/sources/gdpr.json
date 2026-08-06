@@ -1,0 +1,80 @@
+{
+  "act": "GDPR",
+  "source": "General Data Protection Regulation (EU) 2016/679",
+  "jurisdiction": "EU",
+  "verified": false,
+  "chunks": [
+    {
+      "id": "gdpr-art5",
+      "section": "Article 5",
+      "topic": ["principles", "lawful basis", "accountability"],
+      "text": "Article 5 sets out the core principles relating to processing of personal data: lawfulness, fairness and transparency; purpose limitation; data minimisation; accuracy; storage limitation; integrity and confidentiality (security); and accountability, under which the controller must be able to demonstrate compliance with all the other principles."
+    },
+    {
+      "id": "gdpr-art6",
+      "section": "Article 6",
+      "topic": ["lawful basis", "consent"],
+      "text": "Article 6(1) lists six lawful bases for processing: consent, performance of a contract, compliance with a legal obligation, protection of vital interests, performance of a task in the public interest, and legitimate interests of the controller or a third party (subject to a balancing test against the data subject's rights)."
+    },
+    {
+      "id": "gdpr-art7",
+      "section": "Article 7",
+      "topic": ["consent"],
+      "text": "Where processing is based on consent, the controller must be able to demonstrate that the data subject consented. A request for consent must be clearly distinguishable, in an intelligible and easily accessible form, using clear and plain language. The data subject has the right to withdraw consent at any time, and withdrawal must be as easy as giving consent."
+    },
+    {
+      "id": "gdpr-art9",
+      "section": "Article 9",
+      "topic": ["special category data", "sensitive data"],
+      "text": "Article 9 prohibits processing of special categories of personal data (revealing racial/ethnic origin, political opinions, religious beliefs, trade union membership, genetic/biometric data for unique identification, health data, or data on sex life/orientation) unless one of the specified exceptions applies, such as explicit consent or substantial public interest."
+    },
+    {
+      "id": "gdpr-art17",
+      "section": "Article 17",
+      "topic": ["right to erasure", "data subject rights"],
+      "text": "The 'right to be forgotten' entitles a data subject to obtain erasure of personal data without undue delay where, among other grounds, the data is no longer necessary for its original purpose, consent is withdrawn and no other legal basis exists, or the data was unlawfully processed."
+    },
+    {
+      "id": "gdpr-art25",
+      "section": "Article 25",
+      "topic": ["privacy by design", "data protection by default"],
+      "text": "Article 25 requires controllers to implement data protection by design (technical and organisational measures at the time of determining the means of processing) and by default (ensuring only personal data necessary for each specific purpose is processed, by default)."
+    },
+    {
+      "id": "gdpr-art30",
+      "section": "Article 30",
+      "topic": ["records of processing activities", "RoPA", "accountability"],
+      "text": "Article 30 requires each controller (and, where applicable, processor) to maintain a Record of Processing Activities (RoPA) documenting, among other things: purposes of processing, categories of data subjects and personal data, recipients, cross-border transfers and safeguards, retention periods, and a general description of technical/organisational security measures."
+    },
+    {
+      "id": "gdpr-art32",
+      "section": "Article 32",
+      "topic": ["security of processing"],
+      "text": "Article 32 requires controllers and processors to implement appropriate technical and organisational measures to ensure a level of security appropriate to the risk, considering pseudonymisation, encryption, ability to ensure ongoing confidentiality/integrity/availability/resilience of systems, and a process for regularly testing the effectiveness of measures."
+    },
+    {
+      "id": "gdpr-art33-34",
+      "section": "Articles 33-34",
+      "topic": ["breach notification"],
+      "text": "In the event of a personal data breach, the controller must notify the supervisory authority without undue delay and, where feasible, within 72 hours of becoming aware of it (Article 33), unless the breach is unlikely to result in a risk to individuals. Where a breach is likely to result in a high risk to individuals, the controller must also communicate the breach to affected data subjects without undue delay (Article 34)."
+    },
+    {
+      "id": "gdpr-art35",
+      "section": "Article 35",
+      "topic": ["DPIA", "data protection impact assessment"],
+      "text": "Where a type of processing, in particular using new technologies, is likely to result in a high risk to the rights and freedoms of natural persons, the controller must carry out a Data Protection Impact Assessment (DPIA) prior to processing, assessing necessity/proportionality and risks, and identifying measures to address those risks."
+    },
+    {
+      "id": "gdpr-art44-49",
+      "section": "Articles 44-49",
+      "topic": ["cross-border transfer", "international"],
+      "text": "Chapter V governs transfers of personal data outside the EEA. Transfers may occur on the basis of an adequacy decision (Article 45), appropriate safeguards such as Standard Contractual Clauses or Binding Corporate Rules (Article 46), or specific derogations for particular situations such as explicit consent (Article 49)."
+    },
+    {
+      "id": "gdpr-fines",
+      "section": "Article 83",
+      "topic": ["penalties", "enforcement"],
+      "text": "Article 83 sets a two-tier fine structure: up to €10 million or 2% of global annual turnover (whichever is higher) for lower-tier infringements (e.g. failures relating to records, security, DPIAs), and up to €20 million or 4% of global annual turnover for higher-tier infringements (e.g. breach of core processing principles, data subject rights, or unlawful cross-border transfers)."
+    }
+  ]
+}

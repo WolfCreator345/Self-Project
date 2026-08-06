@@ -1,0 +1,62 @@
+{
+  "act": "IT_ACT",
+  "source": "Information Technology Act, 2000 (India, as amended 2008)",
+  "jurisdiction": "India",
+  "verified": false,
+  "chunks": [
+    {
+      "id": "itact-s43",
+      "section": "Section 43",
+      "topic": ["unauthorized access", "civil liability", "damage to computer"],
+      "text": "Section 43 imposes civil liability (compensation) on any person who, without permission of the owner, accesses or secures access to a computer/computer system/network, downloads or copies data, introduces a virus/contaminant, damages or disrupts a computer resource, or denies access to an authorised person."
+    },
+    {
+      "id": "itact-s43a",
+      "section": "Section 43A",
+      "topic": ["data protection", "sensitive personal data", "compensation"],
+      "text": "Section 43A requires a body corporate possessing, dealing with, or handling sensitive personal data or information in a computer resource it owns/controls/operates to implement and maintain 'reasonable security practices and procedures'; failure resulting in wrongful loss or gain makes the body corporate liable to pay compensation to the person affected. This section is a predecessor framework largely overtaken by the DPDP Act, 2023 for personal data specifically."
+    },
+    {
+      "id": "itact-s66",
+      "section": "Section 66",
+      "topic": ["hacking", "computer offences", "criminal liability"],
+      "text": "Section 66 makes the acts described in Section 43 punishable as offences (when done dishonestly or fraudulently) with imprisonment up to three years or a fine up to INR 5 lakh, or both — covering conduct commonly referred to as 'hacking'."
+    },
+    {
+      "id": "itact-s66c",
+      "section": "Section 66C",
+      "topic": ["identity theft"],
+      "text": "Section 66C punishes fraudulent or dishonest use of another person's electronic signature, password, or any other unique identification feature, with imprisonment up to three years and fine up to INR 1 lakh."
+    },
+    {
+      "id": "itact-s66e",
+      "section": "Section 66E",
+      "topic": ["privacy violation"],
+      "text": "Section 66E punishes intentional capturing, publishing or transmitting the image of a private area of a person without consent, under circumstances violating that person's privacy, with imprisonment up to three years or fine up to INR 2 lakh, or both."
+    },
+    {
+      "id": "itact-s69",
+      "section": "Section 69",
+      "topic": ["interception", "government powers", "surveillance"],
+      "text": "Section 69 empowers the Central/State Government to direct interception, monitoring or decryption of information through a computer resource in the interest of sovereignty/integrity of India, defence, security of the State, friendly relations with foreign States, public order, or for preventing incitement to a cognisable offence, subject to procedure and safeguards prescribed by rules."
+    },
+    {
+      "id": "itact-s72",
+      "section": "Section 72",
+      "topic": ["breach of confidentiality"],
+      "text": "Section 72 penalises a person who, having secured access to any electronic record/information under powers granted by the Act (e.g. as an appointed officer), discloses it to another person without consent, with imprisonment up to two years or fine up to INR 1 lakh, or both."
+    },
+    {
+      "id": "itact-s72a",
+      "section": "Section 72A",
+      "topic": ["breach of contract", "unauthorized disclosure"],
+      "text": "Section 72A punishes disclosure of personal information obtained while providing services under a lawful contract, made without the consent of the person concerned or in breach of a lawful contract, with intent to cause or knowing it is likely to cause wrongful loss/gain, with imprisonment up to three years or fine up to INR 5 lakh, or both."
+    },
+    {
+      "id": "itact-s79",
+      "section": "Section 79",
+      "topic": ["intermediary liability", "safe harbour"],
+      "text": "Section 79 provides intermediaries a conditional 'safe harbour' from liability for third-party information hosted or transmitted, provided the intermediary does not initiate the transmission, select the receiver, or modify the content, and observes due diligence (including under the Intermediary Guidelines Rules) and removes/disables unlawful content on receiving actual knowledge or a government/court order."
+    }
+  ]
+}

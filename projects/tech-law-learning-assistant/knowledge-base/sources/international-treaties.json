@@ -1,0 +1,62 @@
+{
+  "act": "TREATIES",
+  "source": "Budapest Convention on Cybercrime (2001) and WIPO Copyright Treaty (1996)",
+  "jurisdiction": "International",
+  "verified": false,
+  "chunks": [
+    {
+      "id": "budapest-art2",
+      "section": "Budapest Convention, Article 2",
+      "topic": ["Budapest Convention", "illegal access", "cybercrime"],
+      "text": "Article 2 of the Budapest Convention on Cybercrime requires each party to establish as a criminal offence, under its domestic law, the intentional access to the whole or any part of a computer system without right."
+    },
+    {
+      "id": "budapest-art3-5",
+      "section": "Budapest Convention, Articles 3-5",
+      "topic": ["Budapest Convention", "illegal interception", "data interference", "system interference"],
+      "text": "Articles 3-5 require criminalisation of illegal interception of non-public transmissions of computer data (Art 3), data interference — damaging, deleting, deteriorating, altering or suppressing computer data without right (Art 4), and system interference — seriously hindering the functioning of a computer system by inputting, transmitting, damaging, deleting, deteriorating, altering or suppressing data (Art 5)."
+    },
+    {
+      "id": "budapest-art23-35",
+      "section": "Budapest Convention, Chapter III (Articles 23-35)",
+      "topic": ["Budapest Convention", "international cooperation", "mutual legal assistance"],
+      "text": "Chapter III of the Convention establishes principles of international cooperation, including extradition and mutual legal assistance for the offences covered, a 24/7 network of points of contact among parties for urgent preservation of electronic evidence, and expedited preservation of stored computer data across borders."
+    },
+    {
+      "id": "budapest-india-status",
+      "section": "Budapest Convention - accession status",
+      "topic": ["Budapest Convention", "India"],
+      "text": "India is not a signatory to the Budapest Convention on Cybercrime, citing sovereignty concerns (particularly around Article 32(b), which permits cross-border access to stored data with consent of the lawful data controller, bypassing formal mutual legal assistance channels). India has instead engaged with the UN Ad Hoc Committee process for a separate global cybercrime treaty."
+    },
+    {
+      "id": "wct-art4",
+      "section": "WIPO Copyright Treaty, Article 4",
+      "topic": ["WIPO", "copyright", "computer programs"],
+      "text": "Article 4 of the WIPO Copyright Treaty (WCT) provides that computer programs are protected as literary works within the meaning of Article 2 of the Berne Convention, regardless of the mode or form of their expression."
+    },
+    {
+      "id": "wct-art8",
+      "section": "WIPO Copyright Treaty, Article 8",
+      "topic": ["WIPO", "copyright", "communication to the public", "internet"],
+      "text": "Article 8 grants authors of literary and artistic works the exclusive right of authorising any communication to the public of their works, by wire or wireless means, including making works available in a way that members of the public may access them from a place and at a time individually chosen by them — the treaty basis for the 'making available' right underpinning on-demand internet transmission."
+    },
+    {
+      "id": "wct-art11-12",
+      "section": "WIPO Copyright Treaty, Articles 11-12",
+      "topic": ["WIPO", "technological protection measures", "rights management information"],
+      "text": "Articles 11 and 12 require contracting parties to provide adequate legal protection and effective remedies against circumvention of technological protection measures (e.g. DRM) used by authors, and against removal or alteration of electronic rights management information."
+    },
+    {
+      "id": "ipr-cyberspace-patents",
+      "section": "Patents Act, 1970 - Section 3(k) (India)",
+      "topic": ["IPR in cyberspace", "software patents", "India"],
+      "text": "Section 3(k) of the Indian Patents Act excludes 'a mathematical or business method or a computer programme per se or algorithms' from patentability, meaning software is generally patentable in India only when claimed as part of a technical solution to a technical problem producing a further technical effect, not as a computer program 'per se'."
+    },
+    {
+      "id": "ipr-cyberspace-domain",
+      "section": "UDRP (ICANN Uniform Domain-Name Dispute-Resolution Policy)",
+      "topic": ["IPR in cyberspace", "domain name disputes", "trademark"],
+      "text": "The UDRP allows a trademark owner to file a complaint against a domain name registrant where the domain is identical/confusingly similar to the complainant's mark, the registrant has no rights or legitimate interests in the domain, and the domain was registered and used in bad faith — resolved through an administrative panel rather than court litigation, with remedies limited to transfer or cancellation of the domain."
+    }
+  ]
+}

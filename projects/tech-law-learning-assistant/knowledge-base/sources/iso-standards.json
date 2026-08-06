@@ -1,0 +1,50 @@
+{
+  "act": "ISO",
+  "source": "ISO/IEC 27701:2019 and ISO/IEC 42001:2023",
+  "jurisdiction": "International",
+  "verified": false,
+  "chunks": [
+    {
+      "id": "iso27701-overview",
+      "section": "ISO/IEC 27701:2019 - Clause 5 (overview)",
+      "topic": ["ISO 27701", "PIMS", "privacy management"],
+      "text": "ISO/IEC 27701:2019 extends ISO/IEC 27001 and 27002 to establish, implement, maintain and continually improve a Privacy Information Management System (PIMS). It adds privacy-specific guidance on top of the information security management system (ISMS), and is intended for both PII controllers and PII processors."
+    },
+    {
+      "id": "iso27701-annex-a",
+      "section": "ISO/IEC 27701:2019 - Annex A",
+      "topic": ["ISO 27701", "PII controller", "controls"],
+      "text": "Annex A of ISO/IEC 27701 sets out PIMS-specific controls applicable to organisations acting as PII controllers, covering conditions for collection and processing, obligations to PII principals (notice, choice, access, correction), privacy by design/default, and PII sharing/transfer/disclosure."
+    },
+    {
+      "id": "iso27701-annex-b",
+      "section": "ISO/IEC 27701:2019 - Annex B",
+      "topic": ["ISO 27701", "PII processor", "controls"],
+      "text": "Annex B of ISO/IEC 27701 sets out PIMS-specific controls applicable to organisations acting as PII processors, including conditions for collection/processing on behalf of a controller, obligations to PII principals via the controller, and requirements around sub-processing and cross-border transfer of PII."
+    },
+    {
+      "id": "iso27701-mapping",
+      "section": "ISO/IEC 27701:2019 - Annex D/E/F",
+      "topic": ["ISO 27701", "GDPR mapping", "crosswalk"],
+      "text": "ISO/IEC 27701 includes informative annexes mapping its controls to the GDPR (Annex D), to ISO/IEC 27018 and ISO/IEC 29151 (Annex E), and to ISO/IEC 27002 (Annex F), which makes it a common reference point for organisations building a single control set that satisfies multiple privacy regimes at once."
+    },
+    {
+      "id": "iso42001-overview",
+      "section": "ISO/IEC 42001:2023 - Clause 4-5",
+      "topic": ["ISO 42001", "AI management system"],
+      "text": "ISO/IEC 42001:2023 is the first international management-system standard for Artificial Intelligence. It specifies requirements for establishing, implementing, maintaining and continually improving an AI Management System (AIMS) within an organisation, addressing context of the organisation, leadership commitment, and AI policy."
+    },
+    {
+      "id": "iso42001-annexA",
+      "section": "ISO/IEC 42001:2023 - Annex A",
+      "topic": ["ISO 42001", "AI risk", "controls"],
+      "text": "Annex A of ISO/IEC 42001 provides a reference set of controls organised around themes including AI system impact assessment, AI system life cycle (design, development, verification/validation, deployment, operation, monitoring), data for AI systems, and resources (including compute and human oversight)."
+    },
+    {
+      "id": "iso42001-risk",
+      "section": "ISO/IEC 42001:2023 - Clause 6",
+      "topic": ["ISO 42001", "AI risk assessment"],
+      "text": "Clause 6 requires organisations to determine risks and opportunities related to AI systems, perform AI risk assessments considering intended use and reasonably foreseeable misuse, and plan actions to address risks — conceptually analogous to a DPIA but scoped to AI system risk (bias, safety, robustness, transparency) rather than personal data alone."
+    }
+  ]
+}

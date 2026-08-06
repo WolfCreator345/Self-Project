@@ -1,0 +1,80 @@
+{
+  "act": "DPDP",
+  "source": "Digital Personal Data Protection Act, 2023 (India)",
+  "jurisdiction": "India",
+  "verified": false,
+  "chunks": [
+    {
+      "id": "dpdp-s4",
+      "section": "Section 4",
+      "topic": ["lawful basis", "grounds for processing", "consent"],
+      "text": "A person may process the personal data of a Data Principal only in accordance with the provisions of the Act and either (a) for a lawful purpose for which the Data Principal has given her consent, or (b) for certain 'legitimate uses' specified in Section 7. Processing outside these two grounds is not permitted."
+    },
+    {
+      "id": "dpdp-s5",
+      "section": "Section 5",
+      "topic": ["notice", "consent", "transparency"],
+      "text": "Before or at the time of requesting consent, the Data Fiduciary must give the Data Principal a notice describing the personal data to be collected and the purpose of processing, in clear and plain language, either directly or through a Consent Manager, including the manner to exercise rights under Section 13 and to make a complaint to the Data Protection Board."
+    },
+    {
+      "id": "dpdp-s6",
+      "section": "Section 6",
+      "topic": ["consent", "lawful basis"],
+      "text": "Consent must be free, specific, informed, unconditional and unambiguous, given through a clear affirmative action, and limited to the personal data necessary for the specified purpose. A Data Principal may withdraw consent at any time, with withdrawal being as easy as giving consent; consequences of withdrawal are borne by the Data Principal, but the Data Fiduciary must cease processing within a reasonable time unless retention is otherwise required by law."
+    },
+    {
+      "id": "dpdp-s7",
+      "section": "Section 7",
+      "topic": ["legitimate use", "lawful basis"],
+      "text": "Section 7 lists 'certain legitimate uses' that do not require consent, including voluntary sharing of data by the Data Principal for a specified purpose without express objection, purposes related to State functions (subsidies, benefits, licences), compliance with a judgment or order, medical emergencies, and employment-related purposes such as safeguarding the employer from loss or for recruitment/termination, subject to conditions."
+    },
+    {
+      "id": "dpdp-s8",
+      "section": "Section 8",
+      "topic": ["data fiduciary obligations", "accountability"],
+      "text": "A Data Fiduciary must ensure the completeness, accuracy and consistency of personal data used for decisions affecting the Data Principal or shared with another Data Fiduciary, implement appropriate technical and organisational measures for compliance, protect personal data through reasonable security safeguards to prevent breach, and intimate the Data Protection Board and affected Data Principals in the event of a personal data breach."
+    },
+    {
+      "id": "dpdp-s9",
+      "section": "Section 9",
+      "topic": ["children", "consent"],
+      "text": "Before processing personal data of a child (under 18 years) or a person with disability who has a lawful guardian, the Data Fiduciary must obtain verifiable consent of the parent or lawful guardian. Processing that is likely to cause detrimental effect on the well-being of a child, and tracking, behavioural monitoring, or targeted advertising directed at children, is prohibited."
+    },
+    {
+      "id": "dpdp-s11-14",
+      "section": "Sections 11-14",
+      "topic": ["data principal rights", "access", "correction", "erasure", "grievance redressal", "nomination"],
+      "text": "Data Principals have the right to obtain a summary of personal data being processed and the processing activities (Section 11), the right to correction, completion, updating and erasure of personal data (Section 12), the right to grievance redressal from the Data Fiduciary or Consent Manager (Section 13), and the right to nominate another individual to exercise these rights in the event of death or incapacity (Section 14)."
+    },
+    {
+      "id": "dpdp-s16",
+      "section": "Section 16",
+      "topic": ["cross-border transfer", "international"],
+      "text": "The Central Government may, by notification, restrict transfer of personal data by a Data Fiduciary for processing to such countries or territories outside India as may be notified, effectively adopting a 'blacklist' (negative list) approach to cross-border data transfer rather than the EU's adequacy-based allow-list model."
+    },
+    {
+      "id": "dpdp-s17",
+      "section": "Section 17",
+      "topic": ["exemptions"],
+      "text": "Section 17 exempts specified processing from parts of the Act, including processing necessary for enforcement of legal rights, processing by courts/tribunals for judicial functions, processing for prevention/detection/investigation of offences, processing in the interest of India's sovereignty and integrity, and processing by certain classes of Data Fiduciaries (e.g. startups) as may be notified, subject to conditions."
+    },
+    {
+      "id": "dpdp-s28-42",
+      "section": "Sections 18-26",
+      "topic": ["data protection board", "enforcement"],
+      "text": "The Act establishes a Data Protection Board of India as an independent adjudicatory body to inquire into breaches, impose penalties, and direct urgent remedial or mitigation measures on receipt of a personal data breach intimation. The Board functions digitally as far as practicable and its orders are appealable to the Appellate Tribunal (TDSAT)."
+    },
+    {
+      "id": "dpdp-schedule",
+      "section": "Schedule (Section 33)",
+      "topic": ["penalties", "enforcement"],
+      "text": "The Schedule to the Act prescribes monetary penalties for non-compliance, including up to INR 250 crore for failure to take reasonable security safeguards to prevent a personal data breach, and up to INR 200 crore for breach of obligations relating to processing of children's personal data or for failure to notify the Board/affected Data Principals of a breach."
+    },
+    {
+      "id": "dpdp-significant-df",
+      "section": "Section 10",
+      "topic": ["significant data fiduciary", "obligations"],
+      "text": "The Central Government may notify certain Data Fiduciaries (or classes thereof) as 'Significant Data Fiduciaries' based on factors such as volume/sensitivity of data processed, risk to electoral democracy, security of the State, and public order. Significant Data Fiduciaries have additional obligations: appointing a Data Protection Officer based in India, appointing an independent data auditor, and conducting periodic Data Protection Impact Assessments (DPIA) and audits."
+    }
+  ]
+}
