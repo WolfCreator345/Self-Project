@@ -1,0 +1,127 @@
+@import "tailwindcss";
+
+@theme {
+  /* Brand palette — from the NFSU crest */
+  --color-navy: #332b66;
+  --color-navy-600: #2a2356;
+  --color-navy-50: #eeedf6;
+  --color-navy-100: #dcd9ee;
+  --color-crimson: #be2020;
+  --color-crimson-50: #fdecec;
+  --color-gold: #cfae6b;
+  --color-gold-200: #ecdcb8;
+  /* Neutrals */
+  --color-page: #f5f6f8;
+  --color-ink: #0e1220;
+  --color-ink-soft: #4a5068;
+
+  --font-sans: var(--font-outfit), ui-sans-serif, system-ui, sans-serif;
+  --font-serif: var(--font-instrument), ui-serif, Georgia, serif;
+  --font-odia: var(--font-odia-noto), var(--font-outfit), sans-serif;
+
+  --shadow-soft: 0 1px 2px rgb(14 18 32 / 0.04), 0 8px 24px -8px rgb(14 18 32 / 0.12);
+  --shadow-lift: 0 2px 4px rgb(14 18 32 / 0.05), 0 18px 40px -12px rgb(51 43 102 / 0.28);
+
+  --animate-glow: glow 3.2s ease-in-out infinite;
+  --animate-rise: rise 0.7s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+/* opacity + transform only, so the pulse stays on the compositor (no repaints) */
+@keyframes glow {
+  0%, 100% { opacity: 0.5; transform: scale(0.9); }
+  50% { opacity: 1; transform: scale(1.06); }
+}
+@keyframes rise {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: none; }
+}
+
+@utility btn {
+  display: inline-flex;
+  min-height: 2.75rem;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border-radius: 9999px;
+  padding: 0.625rem 1.5rem;
+  font-size: 1rem;
+  font-weight: 500;
+  transition: background-color 200ms, box-shadow 200ms, border-color 200ms;
+}
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+    scroll-padding-top: 6rem;
+  }
+  body {
+    @apply bg-page text-ink font-sans antialiased;
+    font-size: 1rem;
+    line-height: 1.6;
+  }
+  :focus-visible {
+    outline: 3px solid var(--color-navy);
+    outline-offset: 3px;
+    border-radius: 0.5rem;
+  }
+  .on-dark :focus-visible {
+    outline-color: var(--color-gold);
+  }
+  ::selection {
+    background: var(--color-navy-100);
+  }
+}
+
+@layer components {
+  .glass {
+    @apply border border-white/70 bg-white/60 backdrop-blur-xl;
+  }
+  .btn-dark {
+    @apply btn bg-ink text-white shadow-soft hover:bg-navy;
+  }
+  .btn-primary {
+    @apply btn bg-navy text-white shadow-soft hover:bg-navy-600;
+  }
+  .btn-outline {
+    @apply btn border border-ink/15 bg-white/70 text-ink hover:border-navy/40 hover:bg-white;
+  }
+  .btn-danger {
+    @apply btn bg-crimson text-white hover:bg-[#9e1a1a];
+  }
+  .field {
+    @apply min-h-11 w-full rounded-xl border border-ink/15 bg-white px-4 py-2.5 text-base text-ink placeholder:text-ink-soft/70 focus:border-navy focus:outline-none focus-visible:outline-2 focus-visible:outline-offset-1;
+  }
+  .label {
+    @apply mb-1.5 block text-sm font-medium text-ink;
+  }
+  .eyebrow {
+    @apply text-sm font-semibold tracking-[0.14em] text-navy uppercase;
+  }
+  .no-scrollbar {
+    scrollbar-width: none;
+  }
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+/* Scroll-driven fade/slide where supported (pure CSS, no JS). */
+@supports (animation-timeline: view()) {
+  .reveal {
+    animation: rise linear both;
+    animation-timeline: view();
+    animation-range: entry 0% entry 40%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}
