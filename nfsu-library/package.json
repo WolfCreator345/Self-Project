@@ -13,7 +13,9 @@
     "db:seed": "node --env-file-if-exists=.env.local prisma/seed.ts",
     "hash-password": "node scripts/hash-password.mjs",
     "db:deploy": "node --env-file-if-exists=.env.local node_modules/prisma/build/index.js migrate deploy",
-    "db:studio": "node --env-file-if-exists=.env.local node_modules/prisma/build/index.js studio"
+    "db:studio": "node --env-file-if-exists=.env.local node_modules/prisma/build/index.js studio",
+    "start:prod": "node --env-file-if-exists=.env.local node_modules/prisma/build/index.js migrate deploy && next start",
+    "setup": "npm run db:deploy && npm run db:seed"
   },
   "prisma": {
     "seed": "node --env-file-if-exists=.env.local prisma/seed.ts"
@@ -26,6 +28,7 @@
     "bcryptjs": "^3.0.3",
     "next": "^15.5.28",
     "next-auth": "^5.0.0-beta.32",
+    "prisma": "^6.19.3",
     "react": "^19.3.1",
     "react-dom": "^19.3.1"
   },
@@ -37,7 +40,6 @@
     "@types/react-dom": "^19.3.0",
     "eslint": "^9.39.5",
     "eslint-config-next": "^15.5.28",
-    "prisma": "^6.19.3",
     "tailwindcss": "^4.3.3",
     "typescript": "^5.9.3"
   }
