@@ -1,0 +1,53 @@
+// To move to Postgres later: change provider to "postgresql",
+// point DATABASE_URL at the server, and run `npm run db:migrate`.
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Category {
+  id        Int      @id @default(autoincrement())
+  name      String   @unique
+  slug      String   @unique
+  icon      String   @default("book")
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  books     Book[]
+}
+
+model Book {
+  id         Int      @id @default(autoincrement())
+  title      String
+  author     String
+  isbn       String?
+  publisher  String?
+  year       Int?
+  copies     Int      @default(1)
+  available  Int      @default(1)
+  coverUrl   String?
+  shelf      String?
+  /// true for sample books created by prisma/seed.ts — safe to bulk-delete later
+  isSeed     Boolean  @default(false)
+  categoryId Int
+  category   Category @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([createdAt])
+  @@index([categoryId])
+  @@index([title])
+}
+
+model Newspaper {
+  id        Int      @id @default(autoincrement())
+  slug      String   @unique
+  nameEn    String
+  nameOr    String
+  url       String
+  sortOrder Int      @default(0)
+  updatedAt DateTime @updatedAt
+}
