@@ -58,3 +58,10 @@ Re-running the seed replaces only the sample books. It never touches staff-added
 
 Change `provider` in `prisma/schema.prisma` to `"postgresql"`, set `DATABASE_URL`, delete `prisma/migrations`,
 then run `npm run db:migrate`. For case-insensitive search, add `mode: "insensitive"` to the `contains` filters in `src/lib/books.ts`.
+
+## Screenshots
+
+Home ([desktop](docs/screenshots/01-home-desktop.png), [mobile](docs/screenshots/02-home-mobile.png), [mobile menu](docs/screenshots/09-mobile-menu.png)) ·
+[Catalogue](docs/screenshots/03-catalogue-desktop.png) · [Book details](docs/screenshots/04-book-drawer-desktop.png) ·
+[E-newspapers](docs/screenshots/05-newspapers-desktop.png) · [Staff login](docs/screenshots/06-staff-login.png) ·
+[Admin dashboard](docs/screenshots/07-admin-dashboard.png) · [Add book](docs/screenshots/08-admin-add-book.png)
